@@ -41,7 +41,22 @@ const (
 
 	// DefraDBCheckTimeout is the timeout for checking DefraDB connectivity.
 	DefraDBCheckTimeout = 5 * time.Second
+
+	// ShinzoHubProtoAPIPort is the port for the ShinzoHub Cosmos LCD / protobuf REST API.
+	ShinzoHubProtoAPIPort = 1317
+
+	// ShinzoHubCosmosAPIPort is the port for the ShinzoHub Cosmos RPC API.
+	ShinzoHubCosmosAPIPort = 25567
 )
+
+// ShinzoHubAPIURL builds a full base URL from a hostname and port.
+// Returns an empty string when hostname is empty so callers can skip hub queries gracefully.
+func ShinzoHubAPIURL(hostname string, port int) string {
+	if hostname == "" {
+		return ""
+	}
+	return fmt.Sprintf("http://%s:%d", hostname, port)
+}
 
 // HealthServer provides HTTP endpoints for health checks and metrics.
 type HealthServer struct {
@@ -54,6 +69,7 @@ type HealthServer struct {
 	startTime            time.Time
 	healthStatusPagePath string
 	querySnapshotSigsFn  func(ctx context.Context, n *node.Node) (map[string]*snapshot.SnapshotSignatureData, error)
+	shinzoHubRESTBase    string // full base URL injected into the health page template, e.g. "http://testnet.shinzo.network:1317"
 }
 
 // HealthChecker interface for checking indexer health.
@@ -144,6 +160,13 @@ func (hs *HealthServer) SetSnapshotter(s *snapshot.Snapshotter) {
 func (hs *HealthServer) SetDefraNode(n *node.Node) {
 	hs.defraNode = n
 	hs.mux.HandleFunc("/snapshots/import", hs.snapshotImportHandler)
+}
+
+// SetShinzoHubRESTBase sets the ShinzoHub REST base URL injected into the health status page.
+// url should be the full base URL including scheme and port, e.g. "http://testnet.shinzo.network:1317".
+// Use shinzoHubAPIURL to build it from a hostname config value.
+func (hs *HealthServer) SetShinzoHubRESTBase(url string) {
+	hs.shinzoHubRESTBase = url
 }
 
 // Start starts the health server.
@@ -487,11 +510,16 @@ func normalizeHex(s string) string {
 	return "0x" + s
 }
 
-// getHealthStatusPageHTML reads the HTML file from disk at runtime, falling back to embedded version.
-// This allows hot-reloading during development without rebuilding.
+// getHealthStatusPageHTML reads the HTML template and renders it with runtime config values.
 func (hs *HealthServer) getHealthStatusPageHTML() []byte {
-	// Try to read from disk first (for development hot-reload).
-	// Check multiple possible paths relative to where the binary might be running.
+	raw := hs.loadHealthStatusPageTemplate()
+	rendered := strings.ReplaceAll(string(raw), "{{SHINZOHUB_REST_BASE}}", hs.shinzoHubRESTBase)
+	return []byte(rendered)
+}
+
+// loadHealthStatusPageTemplate reads the raw HTML template from disk at runtime, falling back to
+// the embedded version. Disk reads allow hot-reloading during development without rebuilding.
+func (hs *HealthServer) loadHealthStatusPageTemplate() []byte {
 	possiblePaths := []string{
 		hs.healthStatusPagePath,
 		filepath.Join(".", "health_status_page.html"),
@@ -504,7 +532,6 @@ func (hs *HealthServer) getHealthStatusPageHTML() []byte {
 		}
 	}
 
-	// Fallback to embedded version (for production or if file not found).
 	logger.Sugar.Debug("Using embedded health status page")
 	return []byte(embeddedHealthStatusPageHTML)
 }

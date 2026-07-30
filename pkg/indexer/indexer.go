@@ -333,6 +333,9 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 		if i.defraNode != nil {
 			i.healthServer.SetDefraNode(i.defraNode)
 		}
+		if cfg.Chain.Hub != "" {
+			i.healthServer.SetShinzoHubRESTBase(server.ShinzoHubAPIURL(cfg.Chain.Hub, server.ShinzoHubProtoAPIPort))
+		}
 
 		auth, err := newSchemaAuthenticator(cfg)
 		if err != nil {
