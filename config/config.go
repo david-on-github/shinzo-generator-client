@@ -62,6 +62,7 @@ func (d *DefraDBConfig) Host() string {
 type ChainConfig struct {
 	Name    string `yaml:"name"`    // e.g. "Ethereum", "Arbitrum", "Optimism", "Avalanche"
 	Network string `yaml:"network"` // e.g. "Mainnet", "Testnet"
+	Hub     string `yaml:"hub"`     // ShinzoHub hostname only — no scheme, no port (e.g. "testnet.shinzo.network")
 }
 
 // GethConfig represents Geth node configuration.
@@ -282,6 +283,9 @@ func applyChainEnvOverrides(cfg *Config) {
 	}
 	if chainNetwork := os.Getenv("CHAIN_NETWORK"); chainNetwork != "" {
 		cfg.Chain.Network = chainNetwork
+	}
+	if shinzoHubHost := os.Getenv("SHINZOHUB_REST_BASE"); shinzoHubHost != "" {
+		cfg.Chain.Hub = shinzoHubHost
 	}
 	if gethRPCURL := os.Getenv("GETH_RPC_URL"); gethRPCURL != "" {
 		cfg.Geth.NodeURL = gethRPCURL
