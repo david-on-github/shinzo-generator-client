@@ -1428,5 +1428,3 @@ func (h *BlockHandler) queryBlockNumber(ctx context.Context, order, opName strin
 
 	return 0, errors.NewDocumentNotFound("defra", opName, h.collections.Block, "invalid number type")
 }
-
-
