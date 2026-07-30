@@ -323,43 +323,8 @@ func newSchemaAuthenticator(cfg *config.Config) (server.Authenticator, error) {
 // initServices starts the health server, pruner, and snapshotter if configured.
 func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blockHandler *defra.BlockHandler) error {
 	if cfg.Indexer.HealthServerPort > 0 {
-		var healthDefraURL string
-		if cfg.DefraDB.URL != "" {
-			healthDefraURL = cfg.DefraDB.URL
-		} else if i.defraNode != nil {
-			healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
-		}
-		i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
-		if i.defraNode != nil {
-			i.healthServer.SetDefraNode(i.defraNode)
-		}
-		if cfg.Chain.Hub != "" {
-			i.healthServer.SetShinzoHubRESTBase(server.ShinzoHubAPIURL(cfg.Chain.Hub, server.ShinzoHubProtoAPIPort))
-		}
-
-		auth, err := newSchemaAuthenticator(cfg)
-		if err != nil {
+		if err := i.initHealthServer(cfg); err != nil {
 			return err
-		}
-		prefix := chainPrefixFromConfig(cfg)
-		sdl, err := schema.GetSchemaForChain(prefix)
-		if err != nil {
-			return fmt.Errorf("load schema for chain %s: %w", prefix, err)
-		}
-		if err := i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth); err != nil {
-			return fmt.Errorf("enable schema endpoint: %w", err)
-		}
-		go func() {
-			if err := i.healthServer.Start(); err != nil {
-				logger.Sugar.Errorf("Health server failed: %v", err)
-			}
-		}()
-		if cfg.Indexer.OpenBrowserOnStart {
-			go func() {
-				time.Sleep(ShortDelayTime)
-				openBrowser(fmt.Sprintf("http://localhost:%d/health", cfg.Indexer.HealthServerPort))
-				logger.Sugar.Infof("Opened health page in browser")
-			}()
 		}
 	}
 
@@ -387,6 +352,49 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 		}
 	}
 
+	return nil
+}
+
+// initHealthServer creates and starts the health server with schema and hub endpoints configured.
+func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
+	var healthDefraURL string
+	if cfg.DefraDB.URL != "" {
+		healthDefraURL = cfg.DefraDB.URL
+	} else if i.defraNode != nil {
+		healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
+	}
+	i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
+	if i.defraNode != nil {
+		i.healthServer.SetDefraNode(i.defraNode)
+	}
+	if cfg.Chain.Hub != "" {
+		i.healthServer.SetShinzoHubRESTBase(server.ShinzoHubAPIURL(cfg.Chain.Hub, server.ShinzoHubProtoAPIPort))
+	}
+
+	auth, err := newSchemaAuthenticator(cfg)
+	if err != nil {
+		return err
+	}
+	prefix := chainPrefixFromConfig(cfg)
+	sdl, err := schema.GetSchemaForChain(prefix)
+	if err != nil {
+		return fmt.Errorf("load schema for chain %s: %w", prefix, err)
+	}
+	if err := i.healthServer.EnableSchemaEndpoint(sdl, prefix, auth); err != nil {
+		return fmt.Errorf("enable schema endpoint: %w", err)
+	}
+	go func() {
+		if err := i.healthServer.Start(); err != nil {
+			logger.Sugar.Errorf("Health server failed: %v", err)
+		}
+	}()
+	if cfg.Indexer.OpenBrowserOnStart {
+		go func() {
+			time.Sleep(ShortDelayTime)
+			openBrowser(fmt.Sprintf("http://localhost:%d/health", cfg.Indexer.HealthServerPort))
+			logger.Sugar.Infof("Opened health page in browser")
+		}()
+	}
 	return nil
 }
 
