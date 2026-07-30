@@ -423,9 +423,6 @@ func TestGetHighestBlockNumber_NonSequential(t *testing.T) {
 	assert.Equal(t, int64(500), highest)
 }
 
-//go:fix inline
-func int64Ptr(v int64) *int64 { return new(v) }
-
 func TestGetLowestBlockNumber(t *testing.T) {
 	t.Parallel()
 
@@ -441,7 +438,7 @@ func TestGetLowestBlockNumber(t *testing.T) {
 		{"SingleBlock", []string{"0x64"}, false, "", 100, nil},
 		{"AfterInserts", []string{"0xC8", "0x64"}, false, "", 100, nil},
 		{"NonSequential", []string{"0x1F4", "0x64", "0x12C"}, false, "", 100, nil},
-		{"LessThanHighest", []string{"0x3E8", "0x64", "0x12C"}, false, "", 100, int64Ptr(1000)},
+		{"LessThanHighest", []string{"0x3E8", "0x64", "0x12C"}, false, "", 100, new(int64(1000))},
 	}
 
 	for _, tc := range cases {
