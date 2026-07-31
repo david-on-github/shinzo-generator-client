@@ -1,0 +1,10 @@
+name: Zenhub PR Connector
+
+on:
+  pull_request:
+    types: [opened, edited]
+
+jobs:
+  connect-zenhub:
+    uses: shinzonetwork/docs/.github/workflows/zenhub-connect.yml@main
+    secrets: inherit 
