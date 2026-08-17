@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shinzonetwork/shinzo-generator-client/config"
@@ -200,7 +201,7 @@ func (a *EVMAdapter) Close() error {
 	return nil
 }
 
-// FetchAndStoreBlock implements Chain.
+// Update caller in FetchAndStoreBlock
 func (a *EVMAdapter) FetchAndStoreBlock(ctx context.Context, height int64) error {
 	if a.blockHandler == nil {
 		return ErrAdapterNotInitialized
@@ -209,7 +210,10 @@ func (a *EVMAdapter) FetchAndStoreBlock(ctx context.Context, height int64) error
 	if err != nil {
 		return err
 	}
-	transactions, receipts := a.fetchTransactionsAndReceipts(ctx, block, height)
+	transactions, receipts, err := a.fetchTransactionsAndReceipts(ctx, block, height)
+	if err != nil {
+		return err
+	}
 	return a.createBlockBatchWithRetry(ctx, block, height, transactions, receipts)
 }
 
@@ -249,7 +253,11 @@ func (a *EVMAdapter) fetchBlockWithRetry(ctx context.Context, blockNum int64) (*
 
 // fetchTransactionsAndReceipts builds the transaction pointer slice and fetches
 // receipts, falling back to individual fetches when the batch call fails.
-func (a *EVMAdapter) fetchTransactionsAndReceipts(ctx context.Context, block *types.Block, blockNum int64) ([]*types.Transaction, []*types.TransactionReceipt) {
+func (a *EVMAdapter) fetchTransactionsAndReceipts(
+	ctx context.Context,
+	block *types.Block,
+	blockNum int64,
+) ([]*types.Transaction, []*types.TransactionReceipt, error) {
 	transactions := make([]*types.Transaction, len(block.Transactions))
 	for i := range block.Transactions {
 		transactions[i] = &block.Transactions[i]
@@ -257,7 +265,7 @@ func (a *EVMAdapter) fetchTransactionsAndReceipts(ctx context.Context, block *ty
 
 	batchReceipts, batchErr := a.client.GetBlockReceipts(ctx, big.NewInt(blockNum))
 	if batchErr == nil {
-		return transactions, batchReceipts
+		return transactions, batchReceipts, nil
 	}
 
 	if ctx.Err() == nil {
@@ -265,6 +273,7 @@ func (a *EVMAdapter) fetchTransactionsAndReceipts(ctx context.Context, block *ty
 	}
 
 	receipts := make([]*types.TransactionReceipt, len(block.Transactions))
+	var failCount atomic.Int64
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, a.receiptWorkers)
 
@@ -276,10 +285,12 @@ func (a *EVMAdapter) fetchTransactionsAndReceipts(ctx context.Context, block *ty
 			case sem <- struct{}{}:
 				defer func() { <-sem }()
 			case <-ctx.Done():
+				failCount.Add(1)
 				return
 			}
 			receipt, err := a.client.GetTransactionReceipt(ctx, txHash)
 			if err != nil {
+				failCount.Add(1)
 				if ctx.Err() == nil {
 					logger.Sugar.Warnf("Failed to fetch receipt for tx %s: %v", txHash, err)
 				}
@@ -297,7 +308,13 @@ func (a *EVMAdapter) fetchTransactionsAndReceipts(ctx context.Context, block *ty
 		}
 	}
 
-	return transactions, validReceipts
+	if failed := failCount.Load(); failed > 0 {
+		return transactions, validReceipts, fmt.Errorf(
+			"block %d: %d/%d receipt fetches failed",
+			blockNum, failed, len(block.Transactions),
+		)
+	}
+	return transactions, validReceipts, nil
 }
 
 // createBlockBatchWithRetry persists the block batch via the BlockHandler. When
