@@ -331,6 +331,15 @@ func (i *ChainIndexer) initServices(ctx context.Context, cfg *config.Config, blo
 	if cfg.Pruner.Enabled && i.defraNode != nil {
 		i.pruner = pruner.NewPruner(&cfg.Pruner, i.defraNode)
 		pruneQueue := pruner.NewIndexerQueue()
+		// Binds the queue to its file before anything tracks into it. Save is a no-op until this
+		// runs, so without it the queue is never written and never survives a restart.
+		queueFilePath := filepath.Join(cfg.DefraDB.Store.Path, "prune_queue.gob")
+		restored, err := pruneQueue.LoadFromFile(queueFilePath)
+		if err != nil {
+			logger.Sugar.Warnf("Failed to load prune queue from disk: %v", err)
+		} else if restored > 0 {
+			logger.Sugar.Infof("Restored %d entries from prune queue file", restored)
+		}
 		i.pruner.SetQueue(pruneQueue)
 		blockHandler.SetDocIDTracker(&indexerQueueTracker{
 			queue:       pruneQueue,

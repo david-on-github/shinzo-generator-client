@@ -477,6 +477,91 @@ func TestRunPrune_WithIndexerQueue(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// queueBlocks fills a queue with n blocks, each carrying one block doc and two transaction docs.
+func queueBlocks(t *testing.T, q *IndexerQueue, n int64) {
+	t.Helper()
+	for i := int64(1); i <= n; i++ {
+		err := q.TrackBlockDocIDs(i,
+			docIDPrefix+"-550e8400-e29b-41d4-a716-446655440000",
+			map[string][]string{constants.CollectionTransaction: {
+				docIDPrefix + "-660e8400-e29b-41d4-a716-446655440001",
+				docIDPrefix + "-770e8400-e29b-41d4-a716-446655440002",
+			}},
+			"",
+		)
+		require.NoError(t, err)
+	}
+}
+
+// A cycle deletes at most max_blocks_per_cycle blocks, so its wall time stays bounded as the
+// backlog grows instead of scaling with it.
+func TestRunIndexerQueuePrune_BoundsWorkPerCycle(t *testing.T) {
+	n := startTestNode(t)
+	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+	p := NewPruner(cfg, n, testCollections())
+	q := NewIndexerQueue()
+	p.SetQueue(q)
+
+	queueBlocks(t, q, 10)
+	require.Equal(t, 10, q.Len())
+
+	require.NoError(t, p.runIndexerQueuePrune(context.Background(), q))
+
+	// Nine blocks are over the retention target, but a cycle may delete two.
+	assert.Equal(t, 8, q.Len())
+}
+
+// A cycle that stays inside the retention target drains nothing, but the entries it holds are still
+// the only record that those documents are prunable, so it checkpoints too.
+func TestRunIndexerQueuePrune_CheckpointsBelowRetentionTarget(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+	cfg := &Config{Enabled: true, MaxBlocks: 100, MaxBlocksPerCycle: 2}
+	p := NewPruner(cfg, n, testCollections())
+	q := NewIndexerQueue()
+	_, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	p.SetQueue(q)
+
+	queueBlocks(t, q, 3)
+	require.NoFileExists(t, path)
+
+	require.NoError(t, p.runIndexerQueuePrune(context.Background(), q))
+
+	// Below the target nothing is drained, so all three must still be there after a reload.
+	assert.Equal(t, 3, q.Len())
+	require.FileExists(t, path)
+	reloaded := NewIndexerQueue()
+	count, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, 3, count)
+}
+
+// The queue is the only record that a document is prunable, so it is written after every cycle
+// rather than only on shutdown.
+func TestRunIndexerQueuePrune_CheckpointsQueueEachCycle(t *testing.T) {
+	n := startTestNode(t)
+	path := t.TempDir() + "/prune_queue.gob"
+	cfg := &Config{Enabled: true, MaxBlocks: 1, MaxBlocksPerCycle: 2}
+	p := NewPruner(cfg, n, testCollections())
+	q := NewIndexerQueue()
+	// LoadFromFile binds the queue to the path Save writes to.
+	_, err := q.LoadFromFile(path)
+	require.NoError(t, err)
+	p.SetQueue(q)
+
+	queueBlocks(t, q, 10)
+	require.NoFileExists(t, path)
+
+	require.NoError(t, p.runIndexerQueuePrune(context.Background(), q))
+
+	require.FileExists(t, path)
+	reloaded := NewIndexerQueue()
+	count, err := reloaded.LoadFromFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, q.Len(), count)
+}
+
 func TestRunIndexerQueuePrune_BelowThreshold(t *testing.T) {
 	n := startTestNode(t)
 	cols := testCollections()

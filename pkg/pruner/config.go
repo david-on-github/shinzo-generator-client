@@ -12,6 +12,10 @@ type Config struct {
 	PruneThreshold  int64 `yaml:"prune_threshold"` // Deprecated: kept for backward compatibility, unused by pruner
 	IntervalSeconds int   `yaml:"interval_seconds"`
 	PruneHistory    bool  `yaml:"prune_history"`
+	// MaxBlocksPerCycle caps how many blocks one cycle may delete. A cycle's wall time scales with
+	// what it deletes, so without a cap a large backlog produces a cycle long enough that the queue
+	// cannot be checkpointed for hours. Zero leaves a cycle unbounded.
+	MaxBlocksPerCycle int64 `yaml:"max_blocks_per_cycle"`
 }
 
 // CollectionConfig defines which collections to prune and how.
@@ -54,5 +58,8 @@ func (c *Config) SetDefaults() {
 	}
 	if c.IntervalSeconds <= 0 {
 		c.IntervalSeconds = 60
+	}
+	if c.MaxBlocksPerCycle <= 0 {
+		c.MaxBlocksPerCycle = 50
 	}
 }
