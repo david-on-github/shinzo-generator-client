@@ -196,19 +196,36 @@ func (p *Pruner) runPrune(ctx context.Context) error {
 // runIndexerQueuePrune drains the IndexerQueue and purges by docIDs.
 // No P2P pause needed — the indexer has no concurrent P2P replication.
 func (p *Pruner) runIndexerQueuePrune(ctx context.Context, q *IndexerQueue) error {
+	// The queue is the only record that a document is prunable, so it is written after every cycle
+	// rather than only on shutdown. A kill between checkpoints strands whatever the queue holds,
+	// including entries still inside the retention target that no cycle has drained yet.
+	defer func() {
+		if err := q.Save(); err != nil {
+			logger.Sugar.Warnf("Failed to checkpoint prune queue: %v", err)
+		}
+	}()
+
 	blockCount := int64(q.Len())
 
 	if blockCount <= p.cfg.MaxBlocks {
 		return p.filterBasedPrune(ctx)
 	}
 
-	result := q.Drain(int(p.cfg.MaxBlocks), p.collections)
+	// Keep more than the retention target when the backlog exceeds what one cycle should delete.
+	// The excess is drained over subsequent cycles, which bounds cycle wall time without changing
+	// how many blocks are ultimately retained.
+	keep := p.cfg.MaxBlocks
+	if p.cfg.MaxBlocksPerCycle > 0 && blockCount-keep > p.cfg.MaxBlocksPerCycle {
+		keep = blockCount - p.cfg.MaxBlocksPerCycle
+	}
+
+	result := q.Drain(int(keep), p.collections)
 	if result == nil {
 		return nil
 	}
 
-	logger.Sugar.Infof("Pruning %d blocks (queue had %d blocks, keeping %d, prune_history=%v)",
-		result.BlockCount, blockCount, p.cfg.MaxBlocks, p.cfg.PruneHistory)
+	logger.Sugar.Infof("Pruning %d blocks (queue had %d blocks, keeping %d, target %d, prune_history=%v)",
+		result.BlockCount, blockCount, keep, p.cfg.MaxBlocks, p.cfg.PruneHistory)
 
 	return p.purgeFromDrainResult(ctx, result)
 }
