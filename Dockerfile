@@ -1,6 +1,6 @@
 # Multi-stage build for Shinzo Network Ethereum Generator.
 # Stage 1: Builder stage
-FROM golang:1.26 AS builder
+FROM golang:1.26@sha256:dc2521c2a906db43073b8b4d99f491b6341cf15610b6ebbab187c45153f9959e AS builder   # digest-pinned; dependabot proposes updates
 
 # Build arguments
 ARG BUILD_DATE
@@ -51,7 +51,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     echo "Binary created successfully"
 
 # Stage 2: Runtime stage
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517   # digest-pinned; dependabot proposes updates
 
 # Re-declare build arguments for this stage
 ARG BUILD_DATE
@@ -72,7 +72,6 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     tzdata \
     curl \
-    && apt-get upgrade -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
