@@ -19,3 +19,8 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - dependencies
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

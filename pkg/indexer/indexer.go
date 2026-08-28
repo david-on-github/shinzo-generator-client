@@ -363,7 +363,12 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 	} else if i.defraNode != nil {
 		healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
 	}
-	i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
+	httpCfg := cfg.Indexer.HTTP
+	i.healthServer = server.NewHealthServer(
+		cfg.Indexer.HealthServerPort, i, healthDefraURL,
+		server.WithAllowedOrigins(httpCfg.AllowedOrigins),
+		server.WithTLS(httpCfg.TLS.CertFile, httpCfg.TLS.KeyFile),
+	)
 	if i.defraNode != nil {
 		i.healthServer.SetDefraNode(i.defraNode)
 	}

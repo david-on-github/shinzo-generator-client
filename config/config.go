@@ -75,18 +75,20 @@ type GethConfig struct {
 
 // IndexerConfig represents indexer configuration.
 type IndexerConfig struct {
-	StartHeight        int    `yaml:"start_height"`
-	ConcurrentBlocks   int    `yaml:"concurrent_blocks"`
-	ReceiptWorkers     int    `yaml:"receipt_workers"`
-	MaxDocsPerTxn      int    `yaml:"max_docs_per_txn"`
-	MaxTxDocsPerBatch  int    `yaml:"max_tx_docs_per_batch"`
-	MaxLogDocsPerBatch int    `yaml:"max_log_docs_per_batch"`
-	MaxALEDocsPerBatch int    `yaml:"max_ale_docs_per_batch"`
-	BlocksPerMinute    int    `yaml:"blocks_per_minute"`
-	HealthServerPort   int    `yaml:"health_server_port"`
-	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"`
-	StartBuffer        int    `yaml:"start_buffer"`
-	SchemaAuthMode     string `yaml:"schema_auth_mode"`
+	StartHeight        int  `yaml:"start_height"`
+	ConcurrentBlocks   int  `yaml:"concurrent_blocks"`
+	ReceiptWorkers     int  `yaml:"receipt_workers"`
+	MaxDocsPerTxn      int  `yaml:"max_docs_per_txn"`
+	MaxTxDocsPerBatch  int  `yaml:"max_tx_docs_per_batch"`
+	MaxLogDocsPerBatch int  `yaml:"max_log_docs_per_batch"`
+	MaxALEDocsPerBatch int  `yaml:"max_ale_docs_per_batch"`
+	BlocksPerMinute    int  `yaml:"blocks_per_minute"`
+	HealthServerPort   int  `yaml:"health_server_port"`
+	OpenBrowserOnStart bool `yaml:"open_browser_on_start"`
+	// HTTP configures the public HTTP surface (CORS, TLS) of the health server.
+	HTTP           HTTPConfig `yaml:"http"`
+	StartBuffer    int        `yaml:"start_buffer"`
+	SchemaAuthMode string     `yaml:"schema_auth_mode"`
 	// SchemaAPIKeys are the accepted bearer tokens for the /api/v1/schema/* endpoints.
 	//
 	// ⚠ IMPORTANT: This field uses yaml:"-", which means YAML configuration is SILENTLY IGNORED.
@@ -94,6 +96,22 @@ type IndexerConfig struct {
 	// Setting this field in config.yaml will NOT work — the server will start with zero keys,
 	// causing ALL schema requests to return 503 Service Unavailable (fail-closed auth).
 	SchemaAPIKeys []string `yaml:"-"`
+}
+
+// HTTPConfig configures the node's public HTTP surface (the health server).
+type HTTPConfig struct {
+	// AllowedOrigins lists browser origins permitted to call this node
+	// (e.g. "https://explorer.shinzo.network"). "*" allows any origin.
+	// Empty disables CORS entirely.
+	AllowedOrigins []string `yaml:"allowed_origins"`
+	// TLS, when both files are set, serves HTTPS directly from the node.
+	TLS TLSConfig `yaml:"tls"`
+}
+
+// TLSConfig points at a PEM certificate/key pair.
+type TLSConfig struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
 }
 
 // LoggerConfig represents logger configuration.
@@ -129,7 +147,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	// Apply environment variable overrides.
-	applyEnvOverrides(&cfg)
+	if err := applyEnvOverrides(&cfg); err != nil {
+		return nil, err
+	}
 
 	// Apply default values.
 	applyDefaults(&cfg)
@@ -198,8 +218,10 @@ func validateConfig(cfg *Config) error {
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.
-func applyEnvOverrides(cfg *Config) {
-	applyDefraEnvOverrides(cfg)
+func applyEnvOverrides(cfg *Config) error {
+	if err := applyDefraEnvOverrides(cfg); err != nil {
+		return err
+	}
 	applyChainEnvOverrides(cfg)
 	applyIndexerEnvOverrides(cfg)
 	applySchemaEnvOverrides(cfg)
@@ -211,10 +233,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Logger.Development = debug
 		}
 	}
+	return nil
 }
 
 // applyDefraEnvOverrides applies DefraDB-related environment variable overrides.
-func applyDefraEnvOverrides(cfg *Config) {
+func applyDefraEnvOverrides(cfg *Config) error {
 	if defraURL := os.Getenv("DEFRADB_URL"); defraURL != "" {
 		cfg.DefraDB.URL = defraURL
 	} else if host := os.Getenv("DEFRADB_HOST"); host != "" {
@@ -225,8 +248,27 @@ func applyDefraEnvOverrides(cfg *Config) {
 		}
 	}
 
-	if keyringSecret := os.Getenv("DEFRADB_KEYRING_SECRET"); keyringSecret != "" {
-		cfg.DefraDB.KeyringSecret = keyringSecret
+	// SHINZO_KEY_PASSPHRASE encrypts the node's identity keys on disk.
+	// DEFRADB_KEYRING_SECRET / DEFRA_KEYRING_SECRET are accepted as legacy aliases.
+	for _, name := range []string{"SHINZO_KEY_PASSPHRASE", "DEFRADB_KEYRING_SECRET", "DEFRA_KEYRING_SECRET"} {
+		if v := os.Getenv(name); v != "" {
+			cfg.DefraDB.KeyringSecret = v
+			break
+		}
+	}
+	if cfg.DefraDB.KeyringSecret == "" {
+		if f := os.Getenv("SHINZO_KEY_PASSPHRASE_FILE"); f != "" {
+			// Docker/Kubernetes secrets are mounted as files; read the passphrase from one.
+			b, err := os.ReadFile(filepath.Clean(f))
+			if err != nil {
+				return fmt.Errorf("read SHINZO_KEY_PASSPHRASE_FILE: %w", err)
+			}
+			cfg.DefraDB.KeyringSecret = strings.TrimSpace(string(b))
+		}
+	}
+	// ALLOWED_ORIGINS is a comma-separated list of browser origins allowed to call this node.
+	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
+		cfg.Indexer.HTTP.AllowedOrigins = strings.Split(origins, ",")
 	}
 	if p2pEnabled := os.Getenv("DEFRADB_P2P_ENABLED"); p2pEnabled != "" {
 		if parsed, err := strconv.ParseBool(p2pEnabled); err == nil {
@@ -274,6 +316,7 @@ func applyDefraEnvOverrides(cfg *Config) {
 			cfg.DefraDB.Store.NumLevelZeroTablesStall = n
 		}
 	}
+	return nil
 }
 
 // applyChainEnvOverrides applies chain and Geth environment variable overrides.

@@ -9,11 +9,12 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: shinzonetwork/shinzo-generator-client
+  IMAGE_NAME: ${{ github.repository }}   # forks publish to their own namespace, never the org's
 
 jobs:
   # Job 1: Build and push standard image (standard)
   build-and-push-custom:
+    if: github.repository_owner == 'shinzonetwork'   # forks never publish: dry-run by construction
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,6 +49,7 @@ jobs:
 
   # Job 2: Build summary
   build-summary:
+    if: github.repository_owner == 'shinzonetwork'   # forks never publish: dry-run by construction
     needs: [build-and-push-custom]
     runs-on: ubuntu-latest
     steps:

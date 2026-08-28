@@ -1,0 +1,68 @@
+name: Smoke test
+
+# Builds the image from this commit and, when Ethereum RPC secrets are
+# available, starts it and exercises the HTTP surface. On forks without
+# secrets it still proves the image builds and starts far enough to serve
+# /health. Nothing is pushed anywhere.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build image (local only)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: smoke/shinzo-generator:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start node
+        env:
+          GETH_RPC_URL: ${{ secrets.GETH_RPC_URL }}
+          GETH_WS_URL: ${{ secrets.GETH_WS_URL }}
+          GETH_API_KEY: ${{ secrets.GETH_API_KEY }}
+          GETH_API_KEY_TYPE: ${{ secrets.GETH_API_KEY_TYPE }}
+        run: |
+          docker run -d --name gen \
+            -p 8080:8080 \
+            -e GETH_RPC_URL -e GETH_WS_URL -e GETH_API_KEY -e GETH_API_KEY_TYPE \
+            -e SHINZO_KEY_PASSPHRASE=ci-only \
+            -e ALLOWED_ORIGINS=http://localhost:3000 \
+            -e SCHEMA_AUTH_MODE=none \
+            -e LOG_LEVEL=debug \
+            smoke/shinzo-generator:ci
+          for i in $(seq 1 40); do
+            curl -sf -o /dev/null http://localhost:8080/health && break
+            sleep 3
+          done
+          curl -sf -o /dev/null http://localhost:8080/health || { docker logs gen; exit 1; }
+
+      - name: Smoke test HTTP surface
+        run: |
+          out=$(scripts/smoke-test.sh http://localhost:8080 http://localhost:3000 || true)
+          echo "$out"
+          # Without RPC secrets the node is up but not indexing: /registration is 503 and
+          # there are no peers. With secrets, only the peer check may fail.
+          echo "$out" | grep -Eq '(8|9) passed' || { docker logs gen; exit 1; }
+
+      - name: Graceful stop
+        run: |
+          start=$(date +%s); docker stop gen; end=$(date +%s)
+          [ "$(docker inspect --format '{{.State.ExitCode}}' gen)" = 0 ] && [ $((end-start)) -lt 10 ]
+
+      - name: Logs on failure
+        if: failure()
+        run: docker logs gen || true

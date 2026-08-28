@@ -112,7 +112,7 @@ playground:
 
 stop:
 	@echo "===> Stopping defradb if running..."
-	@DEFRA_ROOTDIR="$(shell pwd)/.defra"; \
+	@DEFRA_ROOTDIR="$(shell pwd)/data"; \
 	DEFRA_PIDS=$$(ps aux | grep '[d]efradb start --rootdir ' | grep "$$DEFRA_ROOTDIR" | awk '{print $$2}'); \
 	if [ -n "$$DEFRA_PIDS" ]; then \
 	  echo "Killing defradb PIDs: $$DEFRA_PIDS"; \
@@ -121,7 +121,7 @@ stop:
 	else \
 	  echo "No defradb processes found for $$DEFRA_ROOTDIR"; \
 	fi; \
-	rm -f .defra/defradb.pid;
+	rm -f data/defradb.pid;
 	@echo "===> Stopping block_poster if running..."
 	@BLOCK_PIDS=$$(ps aux | grep '[b]lock_poster' | awk '{print $$2}'); \
 	if [ -n "$$BLOCK_PIDS" ]; then \
@@ -131,7 +131,7 @@ stop:
 	else \
 	  echo "No block_poster processes found"; \
 	fi; \
-	rm -f .defra/block_poster.pid;
+	rm -f data/block_poster.pid;
 
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"

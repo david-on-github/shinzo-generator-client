@@ -145,13 +145,17 @@ COPY --from=builder /app/config/ /app/config/
 COPY --from=builder /app/pkg/schema/ /app/pkg/schema/
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /app/.defra /app/logs /tmp && \
+RUN mkdir -p /app/data /app/logs /tmp && \
     touch /app/logs/logfile && \
     chown -R shinzo-generator:shinzo-generator /app && \
     chmod -R 755 /app && \
     chmod +x /app/block_poster
 
 # Switch to non-root user
+# All node state (database, keys, lens registry) lives here. Declared so that
+# even a bare `docker run` gets a volume instead of writing into the container layer.
+VOLUME ["/app/data"]
+
 USER shinzo-generator
 
 # Health check with better error handling
@@ -159,7 +163,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Expose ports health, p2p, graphql
-EXPOSE 8080 9171 9181
+EXPOSE 8080 9171
 
 # Use dumb-init for proper signal handling
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]

@@ -21,7 +21,7 @@ defradb:
     reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
-    path: "./.defra"
+    path: "./data"
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size
     memtable_mb: 64      # Memtable size
@@ -48,6 +48,19 @@ indexer:
   blocks_per_minute: 60     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
+  # Public HTTP surface. The health server also proxies the DefraDB API under
+  # /api/v0/, so browser clients only need this one port.
+  http:
+    # Browser origins allowed to call this node. Empty = no CORS headers.
+    allowed_origins:
+      - "https://*.shinzo.network"   # the network's own apps (explorer, studio, …)
+    #  - "https://explorer.shinzo.network"
+    #  - "http://localhost:3000"
+    # Serve HTTPS directly (leave empty to serve plain HTTP, or terminate TLS
+    # in your own reverse proxy).
+    tls:
+      cert_file: ""
+      key_file: ""
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
   schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
   # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
