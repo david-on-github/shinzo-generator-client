@@ -1,23 +1,30 @@
 name: Smoke test
 
-# Builds the image from this commit and, when Ethereum RPC secrets are
-# available, starts it and exercises the HTTP surface. On forks without
-# secrets it still proves the image builds and starts far enough to serve
-# /health. Nothing is pushed anywhere.
+# Functional smoke against a local anvil chain — nothing is pushed anywhere.
+#   image:  build the Docker image from this commit, run it on the host network
+#           against anvil, exercise the HTTP surface, stop gracefully.
+#   binary: build the bare binary, index tx-bearing blocks, kill -9, recover on
+#           the same data dir (scripts/smoke-binary.sh). Linux on PRs; macOS is
+#           manual only (10x billing on private repos).
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      macos:
+        description: "Also run the binary smoke on macOS"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
-  smoke:
+  image:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
       - uses: docker/setup-buildx-action@v4
+      - uses: foundry-rs/foundry-toolchain@v1
 
       - name: Build image (local only)
         uses: docker/build-push-action@v7
@@ -29,40 +36,64 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Start node
-        env:
-          GETH_RPC_URL: ${{ secrets.GETH_RPC_URL }}
-          GETH_WS_URL: ${{ secrets.GETH_WS_URL }}
-          GETH_API_KEY: ${{ secrets.GETH_API_KEY }}
-          GETH_API_KEY_TYPE: ${{ secrets.GETH_API_KEY_TYPE }}
+      - name: Start anvil with tx-bearing blocks
         run: |
-          docker run -d --name gen \
-            -p 8080:8080 \
-            -e GETH_RPC_URL -e GETH_WS_URL -e GETH_API_KEY -e GETH_API_KEY_TYPE \
-            -e SHINZO_KEY_PASSPHRASE=ci-only \
-            -e ALLOWED_ORIGINS=http://localhost:3000 \
-            -e SCHEMA_AUTH_MODE=none \
-            -e LOG_LEVEL=debug \
+          anvil --block-time 1 --port 8545 > anvil.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' http://127.0.0.1:8545 >/dev/null && break; sleep 1; done
+          ( while true; do cast send 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 --value 1 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --rpc-url http://127.0.0.1:8545 >/dev/null 2>&1 || true; sleep 0.2; done ) &
+
+      - name: Start node
+        run: |
+          docker run -d --name gen --network host \
+            -e GETH_RPC_URL=http://127.0.0.1:8545 -e GETH_WS_URL=ws://127.0.0.1:8545 \
+            -e GETH_API_KEY= -e GETH_API_KEY_TYPE= \
+            -e SHINZO_KEY_PASSPHRASE=ci-only -e SCHEMA_AUTH_MODE=none \
+            -e ALLOWED_ORIGINS=http://localhost:3000 -e LOG_LEVEL=info \
             smoke/shinzo-generator:ci
-          for i in $(seq 1 40); do
-            curl -sf -o /dev/null http://localhost:8080/health && break
+          for i in $(seq 1 60); do
+            s=$(docker inspect --format '{{.State.Health.Status}}' gen 2>/dev/null || echo starting)
+            [ "$s" = healthy ] && break
+            [ "$s" = unhealthy ] && { docker logs gen; exit 1; }
             sleep 3
           done
-          curl -sf -o /dev/null http://localhost:8080/health || { docker logs gen; exit 1; }
+          [ "$(docker inspect --format '{{.State.Health.Status}}' gen)" = healthy ] || { docker logs gen; exit 1; }
+
+      - name: Indexing real blocks
+        run: |
+          for i in $(seq 1 40); do n=$(docker logs gen 2>&1 | grep -c 'Committed block' || true); [ "$n" -ge 5 ] && break; sleep 3; done
+          echo "committed blocks: $n"; [ "$n" -ge 5 ] || { docker logs gen | tail -40; exit 1; }
 
       - name: Smoke test HTTP surface
         run: |
           out=$(scripts/smoke-test.sh http://localhost:8080 http://localhost:3000 || true)
           echo "$out"
-          # Without RPC secrets the node is up but not indexing: /registration is 503 and
-          # there are no peers. With secrets, only the peer check may fail.
-          echo "$out" | grep -Eq '(8|9) passed' || { docker logs gen; exit 1; }
+          echo "$out" | grep -q '8 passed, 1 failed' || { docker logs gen | tail -40; exit 1; }   # only the peer check may fail
+          echo "$out" | grep -q '❌ P2P peers' || exit 1
 
-      - name: Graceful stop
+      - name: Graceful stop within Docker's default grace period
         run: |
           start=$(date +%s); docker stop gen; end=$(date +%s)
+          echo "stopped in $((end-start))s, exit $(docker inspect --format '{{.State.ExitCode}}' gen)"
           [ "$(docker inspect --format '{{.State.ExitCode}}' gen)" = 0 ] && [ $((end-start)) -lt 10 ]
 
       - name: Logs on failure
         if: failure()
         run: docker logs gen || true
+
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.macos == true && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Build
+        run: go build -o bin/block_poster ./cmd/block_poster
+      - name: Functional smoke (index, kill -9, recover)
+        run: scripts/smoke-binary.sh bin/block_poster

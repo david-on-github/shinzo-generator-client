@@ -248,23 +248,12 @@ func applyDefraEnvOverrides(cfg *Config) error {
 		}
 	}
 
-	// SHINZO_KEY_PASSPHRASE encrypts the node's identity keys on disk.
-	// DEFRADB_KEYRING_SECRET / DEFRA_KEYRING_SECRET are accepted as legacy aliases.
-	for _, name := range []string{"SHINZO_KEY_PASSPHRASE", "DEFRADB_KEYRING_SECRET", "DEFRA_KEYRING_SECRET"} {
-		if v := os.Getenv(name); v != "" {
-			cfg.DefraDB.KeyringSecret = v
-			break
-		}
+	secret, err := keyringSecretFromEnv()
+	if err != nil {
+		return err
 	}
-	if cfg.DefraDB.KeyringSecret == "" {
-		if f := os.Getenv("SHINZO_KEY_PASSPHRASE_FILE"); f != "" {
-			// Docker/Kubernetes secrets are mounted as files; read the passphrase from one.
-			b, err := os.ReadFile(filepath.Clean(f))
-			if err != nil {
-				return fmt.Errorf("read SHINZO_KEY_PASSPHRASE_FILE: %w", err)
-			}
-			cfg.DefraDB.KeyringSecret = strings.TrimSpace(string(b))
-		}
+	if secret != "" {
+		cfg.DefraDB.KeyringSecret = secret
 	}
 	// ALLOWED_ORIGINS is a comma-separated list of browser origins allowed to call this node.
 	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
@@ -459,4 +448,25 @@ func applySnapshotEnvOverrides(cfg *Config) {
 			cfg.Snapshot.IntervalSeconds = n
 		}
 	}
+}
+
+// keyringSecretFromEnv returns the passphrase that encrypts the node's identity
+// keys: SHINZO_KEY_PASSPHRASE (or the legacy DEFRADB_KEYRING_SECRET /
+// DEFRA_KEYRING_SECRET), else the contents of SHINZO_KEY_PASSPHRASE_FILE
+// (Docker/Kubernetes secrets are mounted as files). Empty when none is set.
+func keyringSecretFromEnv() (string, error) {
+	for _, name := range []string{"SHINZO_KEY_PASSPHRASE", "DEFRADB_KEYRING_SECRET", "DEFRA_KEYRING_SECRET"} {
+		if v := os.Getenv(name); v != "" {
+			return v, nil
+		}
+	}
+	f := os.Getenv("SHINZO_KEY_PASSPHRASE_FILE")
+	if f == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(filepath.Clean(f))
+	if err != nil {
+		return "", fmt.Errorf("read SHINZO_KEY_PASSPHRASE_FILE: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
 }

@@ -33,6 +33,7 @@ func TestInitWithFiles(t *testing.T) {
 	originalWd, _ := os.Getwd()
 	defer func() { _ = os.Chdir(originalWd) }()
 	_ = os.Chdir(tempDir)
+	t.Setenv("LOG_DIR", filepath.Join(tempDir, "logs")) // file logging is opt-in
 
 	InitWithFiles(true)
 	if Sugar == nil {
