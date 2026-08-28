@@ -8,6 +8,7 @@ name: Smoke test
 #           manual only (10x billing on private repos).
 on:
   pull_request:
+    paths-ignore: ["**.md", "adr/**", "adrs/**", "LICENSE"]
   workflow_dispatch:
     inputs:
       macos:

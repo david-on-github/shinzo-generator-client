@@ -26,7 +26,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # Download dependencies (this should be cached if go.mod/go.sum don't change)
-RUN go mod download && go mod verify
+RUN --mount=type=cache,target=/go/pkg/mod go mod download && go mod verify
 
 ENV CGO_ENABLED=1
 
@@ -34,7 +34,9 @@ ENV CGO_ENABLED=1
 COPY . .
 
 # Build the application (lens transforms run on wazero, pure Go)
-RUN set -ex && \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    set -ex && \
     BUILD_DATE=$(date -u -Iseconds | sed 's/+00:00/Z/') && \
     VCS_REF=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
     echo "Building for VERSION=${VERSION}, BUILD_DATE=${BUILD_DATE}, VCS_REF=${VCS_REF}, BUILD_TAGS=${BUILD_TAGS}" && \
