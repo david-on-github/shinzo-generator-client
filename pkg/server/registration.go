@@ -120,6 +120,10 @@ func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 		return ""
 	}
 
+	if a := announceMultiaddr(p2p.Announce); a != "" {
+		return a + "/p2p/" + p2p.Self.ID
+	}
+
 	port := p2pPort(p2p.Self.Addresses)
 	if ip := requestHostIP(r); ip != "" {
 		return fmt.Sprintf("/ip4/%s/tcp/%s/p2p/%s", ip, port, p2p.Self.ID)
@@ -200,4 +204,17 @@ func isUsableIP4Multiaddr(addr string) bool {
 		return ip != nil && ip.To4() != nil && !ip.IsLoopback() && !ip.IsUnspecified()
 	}
 	return false
+}
+
+// announceMultiaddr normalises a configured announce address: trims, and drops
+// any trailing /p2p/<id> so the node's real peer ID is always appended.
+func announceMultiaddr(a string) string {
+	a = strings.TrimSpace(a)
+	if a == "" {
+		return ""
+	}
+	if i := strings.Index(a, "/p2p/"); i >= 0 {
+		a = a[:i]
+	}
+	return strings.TrimRight(a, "/")
 }

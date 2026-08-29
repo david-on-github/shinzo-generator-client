@@ -25,6 +25,10 @@ type DefraDBP2PConfig struct {
 	RetryBaseDelayMs    int      `yaml:"retry_base_delay_ms"`
 	ReconnectIntervalMs int      `yaml:"reconnect_interval_ms"`
 	EnableAutoReconnect bool     `yaml:"enable_auto_reconnect"`
+	// AnnounceAddr is the P2P address other nodes should dial when it differs
+	// from where we listen (NAT, port remap, DNS name). It is what /registration
+	// advertises. Overridable with P2P_ANNOUNCE_ADDR.
+	AnnounceAddr string `yaml:"announce_addr"`
 }
 
 // DefraDBStoreConfig represents store configuration for DefraDB.
@@ -243,6 +247,9 @@ func applyDefraEnvOverrides(cfg *Config) error {
 	}
 	if listenAddr := os.Getenv("DEFRADB_P2P_LISTEN_ADDR"); listenAddr != "" {
 		cfg.DefraDB.P2P.ListenAddr = listenAddr
+	}
+	if announce := os.Getenv("P2P_ANNOUNCE_ADDR"); announce != "" {
+		cfg.DefraDB.P2P.AnnounceAddr = announce
 	}
 	if acceptIncoming := os.Getenv("DEFRADB_P2P_ACCEPT_INCOMING"); acceptIncoming != "" {
 		if parsed, err := strconv.ParseBool(acceptIncoming); err == nil {

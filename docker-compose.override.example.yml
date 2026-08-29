@@ -30,3 +30,4 @@ services:
 
     environment:
       - LOG_LEVEL=debug
+      - P2P_ANNOUNCE_ADDR=/dns4/host.docker.internal/tcp/19171   # peers dial the published port, not the container's

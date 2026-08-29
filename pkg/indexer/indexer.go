@@ -562,10 +562,19 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	}
 
 	return &server.P2PInfo{
+		Announce: i.announceAddr(),
 		Self:     selfInfo,
 		PeerInfo: serverPeerInfo,
 		Enabled:  networkActive,
 	}, nil
+}
+
+// announceAddr is the operator-configured public P2P address, if any.
+func (i *ChainIndexer) announceAddr() string {
+	if i.cfg == nil {
+		return ""
+	}
+	return i.cfg.DefraDB.P2P.AnnounceAddr
 }
 
 // extractPublicKeyFromPeerID attempts to extract the public key from a libp2p PeerID.
