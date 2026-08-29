@@ -241,10 +241,6 @@ func applyDefraEnvOverrides(cfg *Config) error {
 	if secret != "" {
 		cfg.DefraDB.KeyringSecret = secret
 	}
-	// ALLOWED_ORIGINS is a comma-separated list of browser origins allowed to call this node.
-	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" {
-		cfg.Indexer.HTTP.AllowedOrigins = strings.Split(origins, ",")
-	}
 	if p2pEnabled := os.Getenv("DEFRADB_P2P_ENABLED"); p2pEnabled != "" {
 		if parsed, err := strconv.ParseBool(p2pEnabled); err == nil {
 			cfg.DefraDB.P2P.Enabled = parsed
@@ -253,12 +249,7 @@ func applyDefraEnvOverrides(cfg *Config) error {
 	if listenAddr := os.Getenv("DEFRADB_P2P_LISTEN_ADDR"); listenAddr != "" {
 		cfg.DefraDB.P2P.ListenAddr = listenAddr
 	}
-	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
-		cfg.Indexer.HTTP.TrustedProxies = strings.Split(v, ",")
-	}
-	if announce := os.Getenv("P2P_ANNOUNCE_ADDR"); announce != "" {
-		cfg.DefraDB.P2P.AnnounceAddr = announce
-	}
+	applyNetworkEnvOverrides(cfg)
 	if acceptIncoming := os.Getenv("DEFRADB_P2P_ACCEPT_INCOMING"); acceptIncoming != "" {
 		if parsed, err := strconv.ParseBool(acceptIncoming); err == nil {
 			cfg.DefraDB.P2P.AcceptIncoming = parsed
@@ -461,4 +452,18 @@ func keyringSecretFromEnv() (string, error) {
 		return "", fmt.Errorf("read SHINZO_KEY_PASSPHRASE_FILE: %w", err)
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+// applyNetworkEnvOverrides covers how the node is reached: browser origins,
+// trusted reverse proxies, and the P2P address to advertise.
+func applyNetworkEnvOverrides(cfg *Config) {
+	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" { // comma-separated browser origins
+		cfg.Indexer.HTTP.AllowedOrigins = strings.Split(origins, ",")
+	}
+	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
+		cfg.Indexer.HTTP.TrustedProxies = strings.Split(v, ",")
+	}
+	if announce := os.Getenv("P2P_ANNOUNCE_ADDR"); announce != "" {
+		cfg.DefraDB.P2P.AnnounceAddr = announce
+	}
 }
