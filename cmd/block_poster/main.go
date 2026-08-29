@@ -21,6 +21,7 @@ import (
 var version = "dev" //nolint:gochecknoglobals
 
 const (
+	cmdVersion      = "version"
 	exitUsage       = 2 // conventional exit code for bad command-line usage
 	defaultHTTPPort = 8080
 	clientTimeout   = 5 * time.Second
@@ -64,7 +65,7 @@ func run(args []string) error {
 		return healthCmd(args)
 	case "id":
 		return idCmd(args)
-	case "version":
+	case cmdVersion:
 		fmt.Println(version)
 		return nil
 	case "help", "-h", "--help":
