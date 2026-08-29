@@ -6,6 +6,9 @@ name: Smoke test
 #   binary: build the bare binary, index tx-bearing blocks, kill -9, recover on
 #           the same data dir (scripts/smoke-binary.sh). Linux on PRs; macOS is
 #           manual only (10x billing on private repos).
+#   upgrade: build the PR's base commit, run it the way it shipped (./.defra,
+#           old config, DEFRADB_KEYRING_SECRET), then start the new binary on top
+#           of it and require the same identity (scripts/smoke-upgrade.sh).
 on:
   pull_request:
     paths-ignore: ["**.md", "adr/**", "adrs/**", "LICENSE"]
@@ -113,3 +116,30 @@ jobs:
         run: go build -o bin/block_poster ./cmd/block_poster
       - name: Functional smoke (index, kill -9, recover)
         run: scripts/smoke-binary.sh bin/block_poster
+
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: new
+      - name: Checkout the previous version (PR base, else main)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          path: old
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: new/go.mod
+          cache: true
+          cache-dependency-path: |
+            new/go.sum
+            old/go.sum
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Build old and new binaries
+        run: |
+          (cd old && go build -o bin/block_poster ./cmd/block_poster)
+          (cd new && go build -trimpath -ldflags="-s -w" -o bin/block_poster ./cmd/block_poster)
+      - name: Upgrade path (old layout + old env names -> new binary, same identity)
+        working-directory: new
+        run: scripts/smoke-upgrade.sh ../old/bin/block_poster bin/block_poster
