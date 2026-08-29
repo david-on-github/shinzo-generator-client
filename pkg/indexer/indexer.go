@@ -368,6 +368,8 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 		cfg.Indexer.HealthServerPort, i, healthDefraURL,
 		server.WithAllowedOrigins(httpCfg.AllowedOrigins),
 		server.WithTLS(httpCfg.TLS.CertFile, httpCfg.TLS.KeyFile),
+		server.WithTrustedProxies(cfg.Indexer.HTTP.TrustedProxies),
+		server.WithPassphraseSource(passphraseSource(cfg)),
 	)
 	if i.defraNode != nil {
 		i.healthServer.SetDefraNode(i.defraNode)
@@ -747,4 +749,13 @@ func (t *indexerQueueTracker) TrackBlock(_ context.Context, blockNumber int64, r
 		t.collections.AccessListEntry: result.AccessListIDs,
 	}
 	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, otherDocIDs, result.BlockSignatureID)
+}
+
+// passphraseSource reports, for /health, whether the operator supplied the key
+// passphrase or the node generated one into its data directory.
+func passphraseSource(cfg *config.Config) string {
+	if cfg.PassphraseGenerated || cfg.PassphraseFile != "" {
+		return "generated"
+	}
+	return "provided"
 }

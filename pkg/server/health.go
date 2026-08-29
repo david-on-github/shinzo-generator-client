@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -74,15 +75,19 @@ type HealthServer struct {
 	shinzoHubRESTBase    string // full base URL injected into the health page template, e.g. "http://testnet.shinzo.network:1317"
 	tlsCertFile          string
 	tlsKeyFile           string
+	trustedProxies       []*net.IPNet
+	passphraseSource     string
 }
 
 // Option configures optional HealthServer behaviour.
 type Option func(*serverOptions)
 
 type serverOptions struct {
-	allowedOrigins []string
-	tlsCertFile    string
-	tlsKeyFile     string
+	allowedOrigins   []string
+	tlsCertFile      string
+	tlsKeyFile       string
+	trustedProxies   []string
+	passphraseSource string
 }
 
 // WithAllowedOrigins enables CORS for the given browser origins ("*" allows any).
@@ -138,6 +143,7 @@ type HealthResponse struct {
 	UptimeSeconds    float64              `json:"uptime_seconds"`
 	P2P              *P2PInfo             `json:"p2p,omitempty"`
 	Registration     *DisplayRegistration `json:"registration,omitempty"`
+	KeyPassphrase    string               `json:"key_passphrase,omitempty"` // "provided" | "generated"
 	BuildTags        string               `json:"build_tags,omitempty"`
 	SchemaType       string               `json:"schema_type,omitempty"`
 }
@@ -179,6 +185,8 @@ func NewHealthServer(port int, indexer HealthChecker, defraURL string, opts ...O
 		querySnapshotSigsFn:  snapshot.QuerySnapshotSignatures,
 		tlsCertFile:          o.tlsCertFile,
 		tlsKeyFile:           o.tlsKeyFile,
+		trustedProxies:       parseCIDRs(o.trustedProxies),
+		passphraseSource:     o.passphraseSource,
 	}
 
 	// Register routes
@@ -287,6 +295,7 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 		Uptime:           uptime.String(),
 		UptimeSeconds:    uptime.Seconds(),
 	}
+	response.KeyPassphrase = hs.passphraseSource
 
 	if hs.indexer != nil {
 		response.CurrentBlock = hs.indexer.GetCurrentBlock()
@@ -610,4 +619,74 @@ func (hs *HealthServer) loadHealthStatusPageTemplate() []byte {
 
 	logger.Sugar.Debug("Using embedded health status page")
 	return []byte(embeddedHealthStatusPageHTML)
+}
+
+// trustsProxy reports whether forwarded headers from this request may be
+// believed: only when the request came from a configured trusted proxy. With
+// no proxies configured (the default), X-Forwarded-* is ignored entirely —
+// before the nginx sidecar was removed, nginx overwrote those headers, so a
+// client could never set them; this keeps that property without nginx.
+func (hs *HealthServer) trustsProxy(r *http.Request) bool {
+	if len(hs.trustedProxies) == 0 || r == nil {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range hs.trustedProxies {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// withoutForwardedHeaders returns r as-is when the sender is a trusted proxy,
+// otherwise a shallow clone with the X-Forwarded-* headers removed.
+func (hs *HealthServer) withoutForwardedHeaders(r *http.Request) *http.Request {
+	if hs.trustsProxy(r) {
+		return r
+	}
+	c := r.Clone(r.Context())
+	for _, h := range []string{"X-Forwarded-Host", "X-Forwarded-Proto", "X-Forwarded-For"} {
+		c.Header.Del(h)
+	}
+	return c
+}
+
+// WithTrustedProxies sets the CIDRs whose X-Forwarded-* headers are honoured.
+func WithTrustedProxies(cidrs []string) Option {
+	return func(o *serverOptions) { o.trustedProxies = cidrs }
+}
+
+// WithPassphraseSource records whether the node's key passphrase was provided
+// by the operator or generated on first run, for /health.
+func WithPassphraseSource(source string) Option {
+	return func(o *serverOptions) { o.passphraseSource = source }
+}
+
+func parseCIDRs(cidrs []string) []*net.IPNet {
+	var out []*net.IPNet
+	for _, c := range cidrs {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			continue
+		}
+		if !strings.Contains(c, "/") { // bare IP
+			if strings.Contains(c, ":") {
+				c += "/128"
+			} else {
+				c += "/32"
+			}
+		}
+		if _, n, err := net.ParseCIDR(c); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
 }

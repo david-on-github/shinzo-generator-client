@@ -108,6 +108,11 @@ type HTTPConfig struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
 	// TLS, when both files are set, serves HTTPS directly from the node.
 	TLS TLSConfig `yaml:"tls"`
+	// TrustedProxies are the CIDRs (or IPs) of reverse proxies whose
+	// X-Forwarded-Host/Proto headers are honoured when building the node's
+	// advertised endpoint. Empty (default) = ignore those headers entirely.
+	// Overridable with TRUSTED_PROXIES (comma-separated).
+	TrustedProxies []string `yaml:"trusted_proxies"`
 }
 
 // TLSConfig points at a PEM certificate/key pair.
@@ -247,6 +252,9 @@ func applyDefraEnvOverrides(cfg *Config) error {
 	}
 	if listenAddr := os.Getenv("DEFRADB_P2P_LISTEN_ADDR"); listenAddr != "" {
 		cfg.DefraDB.P2P.ListenAddr = listenAddr
+	}
+	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
+		cfg.Indexer.HTTP.TrustedProxies = strings.Split(v, ",")
 	}
 	if announce := os.Getenv("P2P_ANNOUNCE_ADDR"); announce != "" {
 		cfg.DefraDB.P2P.AnnounceAddr = announce

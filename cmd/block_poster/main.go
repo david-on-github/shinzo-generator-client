@@ -39,7 +39,9 @@ Usage:
 Flags for run (each mirrors an environment variable):
   -config       path     config file           (default: ./config/config.yaml if present, else built-in)
   --data-dir    path     all node state        (SHINZO_DATA_DIR; default: ~/.shinzo/generator)
-  --passphrase  string   key passphrase        (SHINZO_KEY_PASSPHRASE; default: generated on first run)
+
+Key passphrase: SHINZO_KEY_PASSPHRASE or SHINZO_KEY_PASSPHRASE_FILE (never a flag —
+flags show up in 'ps' and shell history). Generated on first run if neither is set.
 
 Required environment: GETH_RPC_URL, GETH_WS_URL (and GETH_API_KEY / GETH_API_KEY_TYPE if your provider needs them).
 `
@@ -83,16 +85,12 @@ func runNode(args []string) error {
 	fs.Usage = func() { fmt.Print(usage) }
 	configPath := fs.String("config", "", "Path to configuration file")
 	dataDir := fs.String("data-dir", "", "data directory")
-	passphrase := fs.String("passphrase", "", "key passphrase")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("failed to parse flags: %w", err)
 	}
 	// Flags are sugar over the environment so there is exactly one config path.
 	if *dataDir != "" {
 		_ = os.Setenv("SHINZO_DATA_DIR", *dataDir)
-	}
-	if *passphrase != "" {
-		_ = os.Setenv("SHINZO_KEY_PASSPHRASE", *passphrase)
 	}
 
 	// Load configuration
@@ -170,7 +168,9 @@ func printBanner(cfg *config.Config) {
 		"  Data         : %s\n",
 		version, cfg.Chain.Name, cfg.Chain.Network, cfg.Source, port, cfg.DefraDB.Store.Path)
 	if cfg.PassphraseGenerated {
-		fmt.Printf("  Passphrase   : generated and saved to %s — back it up; it unlocks this node's identity.\n", cfg.PassphraseFile)
+		fmt.Printf("  Passphrase   : generated and saved to %s.\n"+
+			"                 It sits beside the keys it protects, so a copy of the data dir is a copy of this identity.\n"+
+			"                 For production, set SHINZO_KEY_PASSPHRASE_FILE and back the passphrase up separately.\n", cfg.PassphraseFile)
 	}
 	fmt.Printf("  Peer ID      : run `block_poster id` once the node is up\n\n")
 }

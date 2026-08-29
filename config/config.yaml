@@ -65,6 +65,9 @@ indexer:
     tls:
       cert_file: ""
       key_file: ""
+    # Reverse proxies (CIDRs or IPs) whose X-Forwarded-Host/Proto we honour when
+    # advertising this node's endpoint. Empty = ignore those headers.
+    trusted_proxies: []
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
   schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
   # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").
