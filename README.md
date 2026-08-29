@@ -43,3 +43,14 @@ Open an issue before submitting a PR. See [CONTRIBUTING.md](./CONTRIBUTING.md) f
 ## License
 
 [MIT](./LICENSE)
+
+## Local development
+
+Copy the example override and edit it; `docker compose up` picks it up automatically and merges it over `docker-compose.yml`:
+
+```shell
+cp docker-compose.override.example.yml docker-compose.override.yml
+```
+
+The override is where local-only tweaks live (build from source, port remaps so a host can run alongside on the same machine, memory limits). `docker-compose.yml` stays the reference deployment and is what operators run unchanged.
+

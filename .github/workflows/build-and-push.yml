@@ -13,12 +13,12 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: shinzonetwork/shinzo-generator-client
+  IMAGE_NAME: ${{ github.repository }}   # forks publish to their own namespace, never the org's
 
 jobs:
   # Job 1: Build and push standard image (standard)
   build-and-push-standard:
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    if: github.repository_owner == 'shinzonetwork' && (github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch')   # forks never publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -29,6 +29,9 @@ jobs:
       - name: Get short SHA
         id: short_sha
         run: echo "sha=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -44,9 +47,12 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
+          provenance: true
+          sbom: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main   # latest is reserved for releases (release.yml)
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.short_sha.outputs.sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:standard
           cache-from: type=gha
@@ -54,6 +60,7 @@ jobs:
 
   # Job 2: Build summary
   build-summary:
+    if: github.repository_owner == 'shinzonetwork'   # forks never publish: dry-run by construction
     needs: [build-and-push-standard]
     runs-on: ubuntu-latest
     steps:

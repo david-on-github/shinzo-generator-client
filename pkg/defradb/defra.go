@@ -446,6 +446,10 @@ func StartDefraInstance(cfg *config.Config, schemaApplier SchemaApplier, nodeOpt
 	if err != nil {
 		return nil, nil, err
 	}
+	// Loopback in the configured URL is rewritten to the LAN IP above; write it
+	// back so later consumers (e.g. the health server's /api/v0/ proxy) target
+	// the address DefraDB actually listens on.
+	cfg.DefraDB.URL = defraURL
 
 	allOpts := buildNodeOptions(cfg, nodeIdentity, defraURL, listenAddress, libp2pKeyBytes, nodeOpts)
 	defraNode, err := createAndStartNode(ctx, allOpts, replicationFilter)

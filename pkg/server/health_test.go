@@ -369,6 +369,9 @@ func TestRegistrationAppHandler_Redirect(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/registration-app", nil)
 	req.Host = "35.239.160.177:8080"
 	req.Header.Set("X-Forwarded-Host", "indexer.example.com")
+	// These headers are only honoured from a trusted reverse proxy (nginx used to overwrite them).
+	req.RemoteAddr = "10.0.0.1:1234"
+	hs.trustedProxies = parseCIDRs([]string{"10.0.0.0/8"})
 	hs.registrationAppHandler(rec, req)
 	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
 

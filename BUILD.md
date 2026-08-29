@@ -31,3 +31,13 @@ The compiled binary goes into `./bin`.
 | `make clean` | Remove build artifacts. |
 | `make stop` | Stop running generator and DefraDB processes. |
 | `make help` | Show all available targets. |
+
+## Ports
+
+| Port | Service |
+| --- | --- |
+| `9181` | DefraDB GraphQL + REST API (direct) |
+| `9171` | libp2p P2P networking |
+| `8080` | Health, metrics, registration, snapshots, schema, and a reverse proxy to the DefraDB API under `/api/v0/` |
+
+`docker-compose.yml` publishes the HTTP server on host port `80` (container `8080`) and P2P on `9171`; `9181` stays internal to the container. The HTTP port is the only one a browser client or dashboard needs. CORS origins and optional TLS for it are set under `indexer.http` in `config.yaml`; put your own reverse proxy in front if you'd rather terminate TLS there.

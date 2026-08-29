@@ -372,7 +372,14 @@ func (i *ChainIndexer) initHealthServer(cfg *config.Config) error {
 	} else if i.defraNode != nil {
 		healthDefraURL = fmt.Sprintf("http://localhost:%d", defra.GetPort(i.defraNode))
 	}
-	i.healthServer = server.NewHealthServer(cfg.Indexer.HealthServerPort, i, healthDefraURL)
+	httpCfg := cfg.Indexer.HTTP
+	i.healthServer = server.NewHealthServer(
+		cfg.Indexer.HealthServerPort, i, healthDefraURL,
+		server.WithAllowedOrigins(httpCfg.AllowedOrigins),
+		server.WithTLS(httpCfg.TLS.CertFile, httpCfg.TLS.KeyFile),
+		server.WithTrustedProxies(cfg.Indexer.HTTP.TrustedProxies),
+		server.WithPassphraseSource(passphraseSource(cfg)),
+	)
 	if i.defraNode != nil {
 		i.healthServer.SetDefraNode(i.defraNode)
 	}
@@ -566,10 +573,19 @@ func (i *ChainIndexer) GetPeerInfo() (*server.P2PInfo, error) {
 	}
 
 	return &server.P2PInfo{
+		Announce: i.announceAddr(),
 		Self:     selfInfo,
 		PeerInfo: serverPeerInfo,
 		Enabled:  networkActive,
 	}, nil
+}
+
+// announceAddr is the operator-configured public P2P address, if any.
+func (i *ChainIndexer) announceAddr() string {
+	if i.cfg == nil {
+		return ""
+	}
+	return i.cfg.DefraDB.P2P.AnnounceAddr
 }
 
 // extractPublicKeyFromPeerID attempts to extract the public key from a libp2p PeerID.
@@ -742,4 +758,13 @@ func (t *indexerQueueTracker) TrackBlock(_ context.Context, blockNumber int64, r
 		t.collections.AccessListEntry: result.AccessListIDs,
 	}
 	return t.queue.TrackBlockDocIDs(blockNumber, result.BlockID, otherDocIDs, result.BlockSignatureID)
+}
+
+// passphraseSource reports, for /health, whether the operator supplied the key
+// passphrase or the node generated one into its data directory.
+func passphraseSource(cfg *config.Config) string {
+	if cfg.PassphraseGenerated || cfg.PassphraseFile != "" {
+		return "generated"
+	}
+	return "provided"
 }

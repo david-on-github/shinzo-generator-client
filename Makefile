@@ -1,3 +1,5 @@
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 .PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt
 
 # Load environment variables from .env file if it exists
@@ -11,7 +13,7 @@ GETH_WS_URL ?=
 GETH_API_KEY ?=
 
 build:
-	go build -o bin/block_poster cmd/block_poster/main.go
+	go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o bin/block_poster cmd/block_poster/main.go
 
 start:
 	./bin/block_poster
@@ -112,7 +114,7 @@ playground:
 
 stop:
 	@echo "===> Stopping defradb if running..."
-	@DEFRA_ROOTDIR="$(shell pwd)/.defra"; \
+	@DEFRA_ROOTDIR="$(shell pwd)/data"; \
 	DEFRA_PIDS=$$(ps aux | grep '[d]efradb start --rootdir ' | grep "$$DEFRA_ROOTDIR" | awk '{print $$2}'); \
 	if [ -n "$$DEFRA_PIDS" ]; then \
 	  echo "Killing defradb PIDs: $$DEFRA_PIDS"; \
@@ -121,7 +123,7 @@ stop:
 	else \
 	  echo "No defradb processes found for $$DEFRA_ROOTDIR"; \
 	fi; \
-	rm -f .defra/defradb.pid;
+	rm -f data/defradb.pid;
 	@echo "===> Stopping block_poster if running..."
 	@BLOCK_PIDS=$$(ps aux | grep '[b]lock_poster' | awk '{print $$2}'); \
 	if [ -n "$$BLOCK_PIDS" ]; then \
@@ -131,7 +133,7 @@ stop:
 	else \
 	  echo "No block_poster processes found"; \
 	fi; \
-	rm -f .defra/block_poster.pid;
+	rm -f data/block_poster.pid;
 
 help:
 	@echo "🚀 Shinzo Network Generator - Available Make Targets"

@@ -173,7 +173,9 @@ func TestValidateConfig_Valid(t *testing.T) {
 func TestApplyEnvOverrides_DefraDBUrl(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_URL", "http://custom:9181")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 	assert.Equal(t, "http://custom:9181", cfg.DefraDB.URL)
 }
 
@@ -193,7 +195,9 @@ func TestApplyEnvOverrides_DefraDBHost(t *testing.T) {
 			t.Setenv("DEFRADB_URL", "")
 			t.Setenv("DEFRADB_HOST", "myhost")
 			t.Setenv("DEFRADB_PORT", tt.port)
-			applyEnvOverrides(cfg)
+			if err := applyEnvOverrides(cfg); err != nil {
+				t.Fatal(err)
+			}
 			assert.Equal(t, tt.wantURL, cfg.DefraDB.URL)
 		})
 	}
@@ -202,7 +206,9 @@ func TestApplyEnvOverrides_DefraDBHost(t *testing.T) {
 func TestApplyEnvOverrides_DefraDBKeyringSecret(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_KEYRING_SECRET", "mysecret")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 	assert.Equal(t, "mysecret", cfg.DefraDB.KeyringSecret)
 }
 
@@ -211,7 +217,9 @@ func TestApplyEnvOverrides_P2PConfig(t *testing.T) {
 	t.Setenv("DEFRADB_P2P_ENABLED", "true")
 	t.Setenv("DEFRADB_P2P_LISTEN_ADDR", "/ip4/0.0.0.0/tcp/9999")
 	t.Setenv("DEFRADB_P2P_ACCEPT_INCOMING", "true")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.True(t, cfg.DefraDB.P2P.Enabled, "P2P.Enabled")
 	assert.Equal(t, "/ip4/0.0.0.0/tcp/9999", cfg.DefraDB.P2P.ListenAddr, "P2P.ListenAddr")
@@ -222,7 +230,9 @@ func TestApplyEnvOverrides_P2P_InvalidBool(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("DEFRADB_P2P_ENABLED", "not_a_bool")
 	t.Setenv("DEFRADB_P2P_ACCEPT_INCOMING", "invalid")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	// Should be silently ignored
 	assert.False(t, cfg.DefraDB.P2P.Enabled, "P2P.Enabled should remain false for invalid bool")
@@ -238,7 +248,9 @@ func TestApplyEnvOverrides_StoreConfig(t *testing.T) {
 	t.Setenv("DEFRADB_NUM_COMPACTORS", "4")
 	t.Setenv("DEFRADB_NUM_LEVEL_ZERO_TABLES", "10")
 	t.Setenv("DEFRADB_NUM_LEVEL_ZERO_TABLES_STALL", "20")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.Equal(t, "/custom/path", cfg.DefraDB.Store.Path, "Store.Path")
 	assert.Equal(t, int64(256), cfg.DefraDB.Store.BlockCacheMB, "Store.BlockCacheMB")
@@ -257,7 +269,9 @@ func TestApplyEnvOverrides_StoreConfig_InvalidValues(t *testing.T) {
 	t.Setenv("DEFRADB_NUM_COMPACTORS", "abc")
 	t.Setenv("DEFRADB_NUM_LEVEL_ZERO_TABLES", "xyz")
 	t.Setenv("DEFRADB_NUM_LEVEL_ZERO_TABLES_STALL", "zzz")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	// All should remain at zero values
 	assert.Zero(t, cfg.DefraDB.Store.BlockCacheMB, "BlockCacheMB should remain 0 for invalid value")
@@ -271,7 +285,9 @@ func TestApplyEnvOverrides_GethConfig(t *testing.T) {
 	t.Setenv("GETH_WS_URL", "ws://geth:8546")
 	t.Setenv("GETH_API_KEY", "myapikey")
 	t.Setenv("GETH_API_KEY_TYPE", "X-Api-Key")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.Equal(t, "http://geth:8545", cfg.Geth.NodeURL, "Geth.NodeURL")
 	assert.Equal(t, "ws://geth:8546", cfg.Geth.WsURL, "Geth.WsURL")
@@ -287,7 +303,9 @@ func TestApplyEnvOverrides_IndexerConfig(t *testing.T) {
 	t.Setenv("INDEXER_BLOCKS_PER_MINUTE", "60")
 	t.Setenv("INDEXER_HEALTH_SERVER_PORT", "9090")
 	t.Setenv("INDEXER_START_BUFFER", "200")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.Equal(t, 5000, cfg.Indexer.StartHeight, "Indexer.StartHeight")
 	assert.Equal(t, 16, cfg.Indexer.ConcurrentBlocks, "Indexer.ConcurrentBlocks")
@@ -308,7 +326,9 @@ func TestApplyEnvOverrides_IndexerConfig_InvalidValues(t *testing.T) {
 	t.Setenv("INDEXER_BLOCKS_PER_MINUTE", "nope")
 	t.Setenv("INDEXER_HEALTH_SERVER_PORT", "xxx")
 	t.Setenv("INDEXER_START_BUFFER", "yyy")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.Equal(t, 1000, cfg.Indexer.StartHeight, "StartHeight should be preserved as 1000")
 }
@@ -316,7 +336,9 @@ func TestApplyEnvOverrides_IndexerConfig_InvalidValues(t *testing.T) {
 func TestApplyEnvOverrides_LoggerConfig(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("LOGGER_DEBUG", "true")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.True(t, cfg.Logger.Development, "Logger.Development should be true")
 }
@@ -324,7 +346,9 @@ func TestApplyEnvOverrides_LoggerConfig(t *testing.T) {
 func TestApplyEnvOverrides_LoggerConfig_Invalid(t *testing.T) {
 	cfg := &Config{}
 	t.Setenv("LOGGER_DEBUG", "not_a_bool")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.False(t, cfg.Logger.Development, "Logger.Development should remain false for invalid bool")
 }
@@ -335,7 +359,9 @@ func TestApplyEnvOverrides_PrunerConfig(t *testing.T) {
 	t.Setenv("PRUNER_MAX_BLOCKS", "1000")
 	t.Setenv("PRUNER_PRUNE_THRESHOLD", "100")
 	t.Setenv("PRUNER_INTERVAL_SECONDS", "30")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.True(t, cfg.Pruner.Enabled, "Pruner.Enabled")
 	assert.Equal(t, int64(1000), cfg.Pruner.MaxBlocks, "Pruner.MaxBlocks")
@@ -349,7 +375,9 @@ func TestApplyEnvOverrides_PrunerConfig_Invalid(t *testing.T) {
 	t.Setenv("PRUNER_MAX_BLOCKS", "not_num")
 	t.Setenv("PRUNER_PRUNE_THRESHOLD", "bad")
 	t.Setenv("PRUNER_INTERVAL_SECONDS", "nope")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.False(t, cfg.Pruner.Enabled, "Pruner.Enabled should remain false")
 }
@@ -360,7 +388,9 @@ func TestApplyEnvOverrides_SnapshotConfig(t *testing.T) {
 	t.Setenv("SNAPSHOT_DIR", "/custom/snapshots")
 	t.Setenv("SNAPSHOT_BLOCKS_PER_FILE", "5000")
 	t.Setenv("SNAPSHOT_INTERVAL_SECONDS", "120")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.True(t, cfg.Snapshot.Enabled, "Snapshot.Enabled")
 	assert.Equal(t, "/custom/snapshots", cfg.Snapshot.Dir, "Snapshot.Dir")
@@ -373,7 +403,9 @@ func TestApplyEnvOverrides_SnapshotConfig_Invalid(t *testing.T) {
 	t.Setenv("SNAPSHOT_ENABLED", "notbool")
 	t.Setenv("SNAPSHOT_BLOCKS_PER_FILE", "invalid")
 	t.Setenv("SNAPSHOT_INTERVAL_SECONDS", "bad")
-	applyEnvOverrides(cfg)
+	if err := applyEnvOverrides(cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	assert.False(t, cfg.Snapshot.Enabled, "Snapshot.Enabled should remain false")
 }

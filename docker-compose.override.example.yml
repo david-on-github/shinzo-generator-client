@@ -1,0 +1,33 @@
+# Local development overrides. Copy to docker-compose.override.yml (gitignored);
+# `docker compose up` merges it over docker-compose.yml automatically.
+#
+# Everything here is optional. Uncomment what you need.
+services:
+  generator:
+    # Until a multi-arch image is published, Apple Silicon needs this to pull
+    # the amd64 image (it then runs under Rosetta).
+    # platform: linux/amd64
+
+    # Build from source instead of pulling the published image. Give it a local
+    # name so a dev build never masquerades as (or gets pulled over by) the
+    # published image.
+    # build:
+    #   context: .
+    # image: shinzo-generator:dev
+
+    # Run alongside a local host client on the same machine: the host keeps
+    # 80/9171, the generator moves to 18080/19171. Point the host's
+    # bootstrap_peers at http://host.docker.internal:18080.
+    ports: !override
+      - "18080:8080"
+      - "19171:9171"
+
+    # Memory sizing. GOMEMLIMIT must stay below mem_limit or the container is
+    # OOM-killed before Go's GC gets aggressive.
+    # mem_limit: 4g
+    # environment:
+    #   - GOMEMLIMIT=3GiB
+
+    environment:
+      - LOG_LEVEL=debug
+      - P2P_ANNOUNCE_ADDR=/dns4/host.docker.internal/tcp/19171   # peers dial the published port, not the container's

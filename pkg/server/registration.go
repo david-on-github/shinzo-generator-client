@@ -44,6 +44,7 @@ type PeerIDRegistration struct {
 
 // getRegistrationData returns the signed registration data for the generator.
 func (hs *HealthServer) getRegistrationData(r *http.Request) (*DisplayRegistration, error) {
+	r = hs.withoutForwardedHeaders(r)
 	if hs.indexer == nil {
 		return nil, errIndexerNotAvailable
 	}
@@ -118,6 +119,10 @@ func deriveDID(publicKeyHex string) (string, error) {
 func deriveConnectionString(r *http.Request, p2p *P2PInfo) string {
 	if p2p == nil || p2p.Self == nil || p2p.Self.ID == "" {
 		return ""
+	}
+
+	if a := announceMultiaddr(p2p.Announce); a != "" {
+		return a + "/p2p/" + p2p.Self.ID
 	}
 
 	port := p2pPort(p2p.Self.Addresses)
@@ -200,4 +205,17 @@ func isUsableIP4Multiaddr(addr string) bool {
 		return ip != nil && ip.To4() != nil && !ip.IsLoopback() && !ip.IsUnspecified()
 	}
 	return false
+}
+
+// announceMultiaddr normalises a configured announce address: trims, and drops
+// any trailing /p2p/<id> so the node's real peer ID is always appended.
+func announceMultiaddr(a string) string {
+	a = strings.TrimSpace(a)
+	if a == "" {
+		return ""
+	}
+	if i := strings.Index(a, "/p2p/"); i >= 0 {
+		a = a[:i]
+	}
+	return strings.TrimRight(a, "/")
 }

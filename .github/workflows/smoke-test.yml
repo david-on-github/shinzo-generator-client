@@ -1,0 +1,145 @@
+name: Smoke test
+
+# Functional smoke against a local anvil chain — nothing is pushed anywhere.
+#   image:  build the Docker image from this commit, run it on the host network
+#           against anvil, exercise the HTTP surface, stop gracefully.
+#   binary: build the bare binary, index tx-bearing blocks, kill -9, recover on
+#           the same data dir (scripts/smoke-binary.sh). Linux on PRs; macOS is
+#           manual only (10x billing on private repos).
+#   upgrade: build the PR's base commit, run it the way it shipped (./.defra,
+#           old config, DEFRADB_KEYRING_SECRET), then start the new binary on top
+#           of it and require the same identity (scripts/smoke-upgrade.sh).
+on:
+  pull_request:
+    paths-ignore: ["**.md", "adr/**", "adrs/**", "LICENSE"]
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: "Also run the binary smoke on macOS"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build image (local only)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: smoke/shinzo-generator:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start anvil with tx-bearing blocks
+        run: |
+          anvil --block-time 1 --port 8545 > anvil.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -X POST -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","id":1,"method":"eth_blockNumber","params":[]}' http://127.0.0.1:8545 >/dev/null && break; sleep 1; done
+          ( while true; do cast send 0x70997970C51812dc3A010C7d01b50e0d17dc79C8 --value 1 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --rpc-url http://127.0.0.1:8545 >/dev/null 2>&1 || true; sleep 0.2; done ) &
+
+      - name: Start node
+        run: |
+          docker run -d --name gen --network host \
+            -e GETH_RPC_URL=http://127.0.0.1:8545 -e GETH_WS_URL=ws://127.0.0.1:8545 \
+            -e GETH_API_KEY= -e GETH_API_KEY_TYPE= \
+            -e SHINZO_KEY_PASSPHRASE=ci-only -e SCHEMA_AUTH_MODE=none \
+            -e ALLOWED_ORIGINS=http://localhost:3000 -e LOG_LEVEL=info \
+            smoke/shinzo-generator:ci
+          for i in $(seq 1 60); do
+            s=$(docker inspect --format '{{.State.Health.Status}}' gen 2>/dev/null || echo starting)
+            [ "$s" = healthy ] && break
+            [ "$s" = unhealthy ] && { docker logs gen; exit 1; }
+            sleep 3
+          done
+          [ "$(docker inspect --format '{{.State.Health.Status}}' gen)" = healthy ] || { docker logs gen; exit 1; }
+
+      - name: Indexing real blocks
+        run: |
+          for i in $(seq 1 40); do n=$(docker logs gen 2>&1 | grep -c 'Committed block' || true); [ "$n" -ge 5 ] && break; sleep 3; done
+          echo "committed blocks: $n"; [ "$n" -ge 5 ] || { docker logs gen | tail -40; exit 1; }
+
+      - name: Smoke test HTTP surface
+        run: |
+          out=$(scripts/smoke-test.sh http://localhost:8080 http://localhost:3000 || true)
+          echo "$out"
+          echo "$out" | grep -q '8 passed, 1 failed' || { docker logs gen | tail -40; exit 1; }   # only the peer check may fail
+          echo "$out" | grep -q '❌ P2P peers' || exit 1
+
+      - name: Graceful stop within Docker's default grace period
+        run: |
+          start=$(date +%s); docker stop gen; end=$(date +%s)
+          echo "stopped in $((end-start))s, exit $(docker inspect --format '{{.State.ExitCode}}' gen)"
+          [ "$(docker inspect --format '{{.State.ExitCode}}' gen)" = 0 ] && [ $((end-start)) -lt 10 ]
+
+      - name: Zero-config first run (no passphrase, no config) generates and persists a passphrase
+        run: |
+          docker volume create zc >/dev/null
+          run_zc() { docker run -d --name $1 --network host -v zc:/app/data \
+                       -e GETH_RPC_URL=http://127.0.0.1:8545 -e GETH_WS_URL=ws://127.0.0.1:8545 -e SCHEMA_AUTH_MODE=none \
+                       smoke/shinzo-generator:ci; for i in $(seq 1 60); do [ "$(docker inspect --format '{{.State.Health.Status}}' $1)" = healthy ] && break; sleep 3; done; }
+          run_zc zc
+          docker logs zc | grep -q 'Passphrase   : generated' || { docker logs zc; exit 1; }
+          docker exec zc sh -c 'stat -c %a /app/data/passphrase' | grep -q 600
+          docker rm -f zc >/dev/null
+          run_zc zc2
+          docker logs zc2 | grep -q 'Passphrase   : generated' && { echo "passphrase regenerated on restart"; exit 1; }
+          docker logs zc2 | grep -q 'Loading existing DefraDB identity' && echo "identity preserved across restart"
+          docker rm -f zc2 >/dev/null
+
+      - name: Logs on failure
+        if: failure()
+        run: docker logs gen || true
+
+  binary:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.macos == true && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Build
+        run: go build -o bin/block_poster ./cmd/block_poster
+      - name: Functional smoke (index, kill -9, recover)
+        run: scripts/smoke-binary.sh bin/block_poster
+
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: new
+      - name: Checkout the previous version (PR base, else main)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+          path: old
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: new/go.mod
+          cache: true
+          cache-dependency-path: |
+            new/go.sum
+            old/go.sum
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Build old and new binaries
+        run: |
+          (cd old && go build -o bin/block_poster ./cmd/block_poster)
+          (cd new && go build -trimpath -ldflags="-s -w" -o bin/block_poster ./cmd/block_poster)
+      - name: Upgrade path (old layout + old env names -> new binary, same identity)
+        working-directory: new
+        run: scripts/smoke-upgrade.sh ../old/bin/block_poster bin/block_poster

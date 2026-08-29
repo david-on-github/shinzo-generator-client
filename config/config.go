@@ -7,11 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joho/godotenv"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
-	"gopkg.in/yaml.v3"
 )
 
 // CollectionName is the legacy collection name for the shinzo network.
@@ -27,6 +25,10 @@ type DefraDBP2PConfig struct {
 	RetryBaseDelayMs    int      `yaml:"retry_base_delay_ms"`
 	ReconnectIntervalMs int      `yaml:"reconnect_interval_ms"`
 	EnableAutoReconnect bool     `yaml:"enable_auto_reconnect"`
+	// AnnounceAddr is the P2P address other nodes should dial when it differs
+	// from where we listen (NAT, port remap, DNS name). It is what /registration
+	// advertises. Overridable with P2P_ANNOUNCE_ADDR.
+	AnnounceAddr string `yaml:"announce_addr"`
 }
 
 // DefraDBStoreConfig represents store configuration for DefraDB.
@@ -75,18 +77,20 @@ type GethConfig struct {
 
 // IndexerConfig represents indexer configuration.
 type IndexerConfig struct {
-	StartHeight        int    `yaml:"start_height"`
-	ConcurrentBlocks   int    `yaml:"concurrent_blocks"`
-	ReceiptWorkers     int    `yaml:"receipt_workers"`
-	MaxDocsPerTxn      int    `yaml:"max_docs_per_txn"`
-	MaxTxDocsPerBatch  int    `yaml:"max_tx_docs_per_batch"`
-	MaxLogDocsPerBatch int    `yaml:"max_log_docs_per_batch"`
-	MaxALEDocsPerBatch int    `yaml:"max_ale_docs_per_batch"`
-	BlocksPerMinute    int    `yaml:"blocks_per_minute"`
-	HealthServerPort   int    `yaml:"health_server_port"`
-	OpenBrowserOnStart bool   `yaml:"open_browser_on_start"`
-	StartBuffer        int    `yaml:"start_buffer"`
-	SchemaAuthMode     string `yaml:"schema_auth_mode"`
+	StartHeight        int  `yaml:"start_height"`
+	ConcurrentBlocks   int  `yaml:"concurrent_blocks"`
+	ReceiptWorkers     int  `yaml:"receipt_workers"`
+	MaxDocsPerTxn      int  `yaml:"max_docs_per_txn"`
+	MaxTxDocsPerBatch  int  `yaml:"max_tx_docs_per_batch"`
+	MaxLogDocsPerBatch int  `yaml:"max_log_docs_per_batch"`
+	MaxALEDocsPerBatch int  `yaml:"max_ale_docs_per_batch"`
+	BlocksPerMinute    int  `yaml:"blocks_per_minute"`
+	HealthServerPort   int  `yaml:"health_server_port"`
+	OpenBrowserOnStart bool `yaml:"open_browser_on_start"`
+	// HTTP configures the public HTTP surface (CORS, TLS) of the health server.
+	HTTP           HTTPConfig `yaml:"http"`
+	StartBuffer    int        `yaml:"start_buffer"`
+	SchemaAuthMode string     `yaml:"schema_auth_mode"`
 	// SchemaAPIKeys are the accepted bearer tokens for the /api/v1/schema/* endpoints.
 	//
 	// ⚠ IMPORTANT: This field uses yaml:"-", which means YAML configuration is SILENTLY IGNORED.
@@ -94,6 +98,27 @@ type IndexerConfig struct {
 	// Setting this field in config.yaml will NOT work — the server will start with zero keys,
 	// causing ALL schema requests to return 503 Service Unavailable (fail-closed auth).
 	SchemaAPIKeys []string `yaml:"-"`
+}
+
+// HTTPConfig configures the node's public HTTP surface (the health server).
+type HTTPConfig struct {
+	// AllowedOrigins lists browser origins permitted to call this node
+	// (e.g. "https://explorer.shinzo.network"). "*" allows any origin.
+	// Empty disables CORS entirely.
+	AllowedOrigins []string `yaml:"allowed_origins"`
+	// TLS, when both files are set, serves HTTPS directly from the node.
+	TLS TLSConfig `yaml:"tls"`
+	// TrustedProxies are the CIDRs (or IPs) of reverse proxies whose
+	// X-Forwarded-Host/Proto headers are honoured when building the node's
+	// advertised endpoint. Empty (default) = ignore those headers entirely.
+	// Overridable with TRUSTED_PROXIES (comma-separated).
+	TrustedProxies []string `yaml:"trusted_proxies"`
+}
+
+// TLSConfig points at a PEM certificate/key pair.
+type TLSConfig struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
 }
 
 // LoggerConfig represents logger configuration.
@@ -110,36 +135,17 @@ type Config struct {
 	Pruner   pruner.Config   `yaml:"pruner"`
 	Snapshot snapshot.Config `yaml:"snapshot"`
 	Logger   LoggerConfig    `yaml:"logger"`
+
+	// Resolved at load time, not from YAML.
+	Source              string `yaml:"-"` // file path or "<built-in default>"
+	PassphraseFile      string `yaml:"-"` // where the passphrase was read from / written to, if a file
+	PassphraseGenerated bool   `yaml:"-"` // true on the run that created PassphraseFile
 }
 
-// LoadConfig loads configuration from a YAML file and environment variables.
+// LoadConfig loads configuration from a YAML file. See Load for the
+// no-file (compiled-in default) path.
 func LoadConfig(path string) (*Config, error) {
-	// Load .env file if it exists.
-	_ = godotenv.Load()
-
-	// Load YAML config.
-	data, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	// Apply environment variable overrides.
-	applyEnvOverrides(&cfg)
-
-	// Apply default values.
-	applyDefaults(&cfg)
-
-	// Validate configuration.
-	if err := validateConfig(&cfg); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	return &cfg, nil
+	return Load(path)
 }
 
 // applyDefaults sets default values for optional configuration.
@@ -198,8 +204,10 @@ func validateConfig(cfg *Config) error {
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.
-func applyEnvOverrides(cfg *Config) {
-	applyDefraEnvOverrides(cfg)
+func applyEnvOverrides(cfg *Config) error {
+	if err := applyDefraEnvOverrides(cfg); err != nil {
+		return err
+	}
 	applyChainEnvOverrides(cfg)
 	applyIndexerEnvOverrides(cfg)
 	applySchemaEnvOverrides(cfg)
@@ -211,10 +219,11 @@ func applyEnvOverrides(cfg *Config) {
 			cfg.Logger.Development = debug
 		}
 	}
+	return nil
 }
 
 // applyDefraEnvOverrides applies DefraDB-related environment variable overrides.
-func applyDefraEnvOverrides(cfg *Config) {
+func applyDefraEnvOverrides(cfg *Config) error {
 	if defraURL := os.Getenv("DEFRADB_URL"); defraURL != "" {
 		cfg.DefraDB.URL = defraURL
 	} else if host := os.Getenv("DEFRADB_HOST"); host != "" {
@@ -225,8 +234,12 @@ func applyDefraEnvOverrides(cfg *Config) {
 		}
 	}
 
-	if keyringSecret := os.Getenv("DEFRADB_KEYRING_SECRET"); keyringSecret != "" {
-		cfg.DefraDB.KeyringSecret = keyringSecret
+	secret, err := keyringSecretFromEnv()
+	if err != nil {
+		return err
+	}
+	if secret != "" {
+		cfg.DefraDB.KeyringSecret = secret
 	}
 	if p2pEnabled := os.Getenv("DEFRADB_P2P_ENABLED"); p2pEnabled != "" {
 		if parsed, err := strconv.ParseBool(p2pEnabled); err == nil {
@@ -236,6 +249,7 @@ func applyDefraEnvOverrides(cfg *Config) {
 	if listenAddr := os.Getenv("DEFRADB_P2P_LISTEN_ADDR"); listenAddr != "" {
 		cfg.DefraDB.P2P.ListenAddr = listenAddr
 	}
+	applyNetworkEnvOverrides(cfg)
 	if acceptIncoming := os.Getenv("DEFRADB_P2P_ACCEPT_INCOMING"); acceptIncoming != "" {
 		if parsed, err := strconv.ParseBool(acceptIncoming); err == nil {
 			cfg.DefraDB.P2P.AcceptIncoming = parsed
@@ -274,6 +288,7 @@ func applyDefraEnvOverrides(cfg *Config) {
 			cfg.DefraDB.Store.NumLevelZeroTablesStall = n
 		}
 	}
+	return nil
 }
 
 // applyChainEnvOverrides applies chain and Geth environment variable overrides.
@@ -415,5 +430,40 @@ func applySnapshotEnvOverrides(cfg *Config) {
 		if n, err := strconv.Atoi(snapshotInterval); err == nil {
 			cfg.Snapshot.IntervalSeconds = n
 		}
+	}
+}
+
+// keyringSecretFromEnv returns the passphrase that encrypts the node's identity
+// keys: SHINZO_KEY_PASSPHRASE (or the legacy DEFRADB_KEYRING_SECRET /
+// DEFRA_KEYRING_SECRET), else the contents of SHINZO_KEY_PASSPHRASE_FILE
+// (Docker/Kubernetes secrets are mounted as files). Empty when none is set.
+func keyringSecretFromEnv() (string, error) {
+	for _, name := range []string{"SHINZO_KEY_PASSPHRASE", "DEFRADB_KEYRING_SECRET", "DEFRA_KEYRING_SECRET"} {
+		if v := os.Getenv(name); v != "" {
+			return v, nil
+		}
+	}
+	f := os.Getenv("SHINZO_KEY_PASSPHRASE_FILE")
+	if f == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(filepath.Clean(f))
+	if err != nil {
+		return "", fmt.Errorf("read SHINZO_KEY_PASSPHRASE_FILE: %w", err)
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// applyNetworkEnvOverrides covers how the node is reached: browser origins,
+// trusted reverse proxies, and the P2P address to advertise.
+func applyNetworkEnvOverrides(cfg *Config) {
+	if origins := os.Getenv("ALLOWED_ORIGINS"); origins != "" { // comma-separated browser origins
+		cfg.Indexer.HTTP.AllowedOrigins = strings.Split(origins, ",")
+	}
+	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
+		cfg.Indexer.HTTP.TrustedProxies = strings.Split(v, ",")
+	}
+	if announce := os.Getenv("P2P_ANNOUNCE_ADDR"); announce != "" {
+		cfg.DefraDB.P2P.AnnounceAddr = announce
 	}
 }

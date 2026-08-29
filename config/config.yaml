@@ -9,19 +9,23 @@ chain:
   hub: "testnet.shinzo.network"
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
-  keyring_secret: "" # over written by env var
+  keyring_secret: ""   # prefer SHINZO_KEY_PASSPHRASE; empty everywhere = generated on first run into <data dir>/passphrase
   embedded: true
   p2p:
     enabled: true
     accept_incoming: false          # Accept incoming P2P documents. false = reject all (generator is source of truth).
     bootstrap_peers: []
     listen_addr: "/ip4/0.0.0.0/tcp/9171"
+    # What other nodes should dial, if different from where we listen (NAT,
+    # port remap, DNS name), e.g. "/dns4/node.example/tcp/9171". Empty = derive
+    # from the listen address. Overridable with P2P_ANNOUNCE_ADDR.
+    announce_addr: ""
     max_retries: 5                  # Number of connection attempts before marking peer as failed
     retry_base_delay_ms: 1000       # Base delay for exponential backoff (1s, 2s, 4s, 8s, 16s)
     reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
-    path: "./.defra"
+    path: ""   # empty = SHINZO_DATA_DIR, else ~/.shinzo/generator (XDG-aware). Docker sets /app/data.
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size
     memtable_mb: 64      # Memtable size
@@ -48,6 +52,22 @@ indexer:
   blocks_per_minute: 60     # Block indexing rate limit
   health_server_port: 8080  # Health server port (-1 == disabled)
   open_browser_on_start: false  # Auto-open health page on startup
+  # Public HTTP surface. The health server also proxies the DefraDB API under
+  # /api/v0/, so browser clients only need this one port.
+  http:
+    # Browser origins allowed to call this node. Empty = no CORS headers.
+    allowed_origins:
+      - "https://*.shinzo.network"   # the network's own apps (explorer, studio, …)
+    #  - "https://explorer.shinzo.network"
+    #  - "http://localhost:3000"
+    # Serve HTTPS directly (leave empty to serve plain HTTP, or terminate TLS
+    # in your own reverse proxy).
+    tls:
+      cert_file: ""
+      key_file: ""
+    # Reverse proxies (CIDRs or IPs) whose X-Forwarded-Host/Proto we honour when
+    # advertising this node's endpoint. Empty = ignore those headers.
+    trusted_proxies: []
   start_buffer: 100        # Start this many blocks before chain tip when skipping ahead
   schema_auth_mode: "${SCHEMA_AUTH_MODE}" # Auth mode for schema endpoint: none, token, mtls (env: SCHEMA_AUTH_MODE)
   # ⚠ schema_api_keys is NOT configurable in this file (the field uses yaml:"-").

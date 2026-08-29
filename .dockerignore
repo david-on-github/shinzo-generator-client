@@ -47,3 +47,7 @@ Thumbs.db
 .env.*
 *.pem
 *.key
+
+# Node state and machine-local config
+config/config.local.yaml
+docker-compose.override.yml

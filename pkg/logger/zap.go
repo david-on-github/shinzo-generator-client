@@ -76,6 +76,13 @@ func initLogger(development, enableFiles bool) {
 	} else {
 		zapLevel = zap.InfoLevel
 	}
+	// LOG_LEVEL (debug|info|warn|error) applies to the app logger as well as
+	// DefraDB's, so one variable controls both.
+	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
+		if parsed, err := zapcore.ParseLevel(lvl); err == nil {
+			zapLevel = parsed
+		}
+	}
 
 	encoderConfig := zap.NewDevelopmentEncoderConfig()
 	encoderConfig.EncodeLevel = customLevelEncoder
@@ -90,20 +97,21 @@ func initLogger(development, enableFiles bool) {
 
 	// Only create log files if enabled.
 	if enableFiles {
-		logsDir := "logs"
-		if err := os.MkdirAll(logsDir, 0o750); err == nil { // nolint:mnd
+		// Containers and systemd collect stdout; file logging is opt-in via LOG_DIR.
+		logsDir := os.Getenv("LOG_DIR")
+		if err := os.MkdirAll(logsDir, 0o750); logsDir != "" && err == nil { //nolint:mnd,gosec // LOG_DIR is operator-supplied
 			// Directory exists or was created successfully.
 			logFile := filepath.Join(logsDir, "logfile.log")
 			errorFile := filepath.Join(logsDir, "errorfile.log")
 
 			// Create file writer for all logs.
-			if logFileWriter, err := os.OpenFile(filepath.Clean(logFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { // nolint:mnd
+			if logFileWriter, err := os.OpenFile(filepath.Clean(logFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { //nolint:mnd,gosec // LOG_DIR is operator-supplied
 				// Core for all logs to logfile.
 				logFileCore := zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), zapcore.AddSync(logFileWriter), zapLevel)
 				cores = append(cores, logFileCore)
 
 				// Create file writer for errors only.
-				if errorFileWriter, err := os.OpenFile(filepath.Clean(errorFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { // nolint:mnd
+				if errorFileWriter, err := os.OpenFile(filepath.Clean(errorFile), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { //nolint:mnd,gosec // LOG_DIR is operator-supplied
 					// Core for ERROR level logs only to errorfile.
 					errorCore := zapcore.NewCore(
 						zapcore.NewConsoleEncoder(encoderConfig),

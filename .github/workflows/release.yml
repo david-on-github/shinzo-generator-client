@@ -3,10 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*-*-*'  # matches v0.6.4-ethereum-mainnet, v1.0.0-polygon-testnet, etc.
+      - 'v*'
 
 jobs:
   build:
+    if: github.repository_owner == 'shinzonetwork'   # forks never publish: dry-run by construction
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -16,6 +17,7 @@ jobs:
       - run: make build
 
   release:
+    if: github.repository_owner == 'shinzonetwork'   # forks never publish: dry-run by construction
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -28,25 +30,35 @@ jobs:
           go-version-file: 'go.mod'
       - run: make build
 
-      - name: Extract chain and network from tag
-        id: meta
-        run: |
-          TAG="${{ github.ref_name }}"
-          SUFFIX="${TAG#v*.*.*-}"
-          NETWORK="${SUFFIX##*-}"
-          CHAIN="${SUFFIX%-*}"
-          echo "chain=$CHAIN" >> $GITHUB_OUTPUT
-          echo "network=$NETWORK" >> $GITHUB_OUTPUT
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # One image per version. Chain/network are runtime settings, not build
+      # variants, so the tag is just the version.
       - name: Build and push Docker image
-        run: |
-          docker build -t ghcr.io/${{ github.repository }}:${{ github.ref_name }} \
-                       -t ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest \
-                       --build-arg CHAIN=${{ steps.meta.outputs.chain }} \
-                       --build-arg NETWORK=${{ steps.meta.outputs.network }} .
-          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          docker push ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-          docker push ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.chain }}-${{ steps.meta.outputs.network }}-latest
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            VCS_REF=${{ github.sha }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
