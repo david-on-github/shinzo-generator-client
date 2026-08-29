@@ -1,3 +1,5 @@
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 .PHONY: deps env build start clean defradb gitpush test testrpc coverage playground stop integration-test docker-build docker-up docker-down deploy lint lint-fix fmt
 
 # Load environment variables from .env file if it exists
@@ -11,7 +13,7 @@ GETH_WS_URL ?=
 GETH_API_KEY ?=
 
 build:
-	go build -o bin/block_poster cmd/block_poster/main.go
+	go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o bin/block_poster cmd/block_poster/main.go
 
 start:
 	./bin/block_poster

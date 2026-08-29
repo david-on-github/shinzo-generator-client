@@ -9,7 +9,7 @@ chain:
   hub: "testnet.shinzo.network"
 defradb:
   url: "http://localhost:9181"  # Empty = embedded DefraDB
-  keyring_secret: "" # over written by env var
+  keyring_secret: ""   # prefer SHINZO_KEY_PASSPHRASE; empty everywhere = generated on first run into <data dir>/passphrase
   embedded: true
   p2p:
     enabled: true
@@ -21,7 +21,7 @@ defradb:
     reconnect_interval_ms: 60000    # Check for disconnected peers every 60 seconds
     enable_auto_reconnect: true     # Automatically reconnect to failed/disconnected peers
   store:
-    path: "./data"
+    path: ""   # empty = SHINZO_DATA_DIR, else ~/.shinzo/generator (XDG-aware). Docker sets /app/data.
     # Badger memory configuration
     block_cache_mb: 512  # Block cache size
     memtable_mb: 64      # Memtable size

@@ -77,6 +77,21 @@ jobs:
           echo "stopped in $((end-start))s, exit $(docker inspect --format '{{.State.ExitCode}}' gen)"
           [ "$(docker inspect --format '{{.State.ExitCode}}' gen)" = 0 ] && [ $((end-start)) -lt 10 ]
 
+      - name: Zero-config first run (no passphrase, no config) generates and persists a passphrase
+        run: |
+          docker volume create zc >/dev/null
+          run_zc() { docker run -d --name $1 --network host -v zc:/app/data \
+                       -e GETH_RPC_URL=http://127.0.0.1:8545 -e GETH_WS_URL=ws://127.0.0.1:8545 -e SCHEMA_AUTH_MODE=none \
+                       smoke/shinzo-generator:ci; for i in $(seq 1 60); do [ "$(docker inspect --format '{{.State.Health.Status}}' $1)" = healthy ] && break; sleep 3; done; }
+          run_zc zc
+          docker logs zc | grep -q 'Passphrase   : generated' || { docker logs zc; exit 1; }
+          docker exec zc sh -c 'stat -c %a /app/data/passphrase' | grep -q 600
+          docker rm -f zc >/dev/null
+          run_zc zc2
+          docker logs zc2 | grep -q 'Passphrase   : generated' && { echo "passphrase regenerated on restart"; exit 1; }
+          docker logs zc2 | grep -q 'Loading existing DefraDB identity' && echo "identity preserved across restart"
+          docker rm -f zc2 >/dev/null
+
       - name: Logs on failure
         if: failure()
         run: docker logs gen || true

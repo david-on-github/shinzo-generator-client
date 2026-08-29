@@ -73,9 +73,11 @@ LABEL maintainer="Shinzo Network <team@shinzo.network>" \
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     tzdata \
-    curl \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# All node state lives on the declared volume.
+ENV SHINZO_DATA_DIR=/app/data
 
 # Create non-root user for security
 RUN groupadd -g 1001 shinzo-generator && \
@@ -106,10 +108,10 @@ USER shinzo-generator
 
 # Health check with better error handling
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD ["./block_poster", "health"]
 
 # Expose ports health, p2p, graphql
 EXPOSE 8080 9171
 
 # Default command
-CMD ["./block_poster", "-config", "config/config.yaml"]
+CMD ["./block_poster"]

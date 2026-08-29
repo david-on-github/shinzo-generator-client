@@ -7,11 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/joho/godotenv"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/constants"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/pruner"
 	"github.com/shinzonetwork/shinzo-generator-client/pkg/snapshot"
-	"gopkg.in/yaml.v3"
 )
 
 // CollectionName is the legacy collection name for the shinzo network.
@@ -128,38 +126,17 @@ type Config struct {
 	Pruner   pruner.Config   `yaml:"pruner"`
 	Snapshot snapshot.Config `yaml:"snapshot"`
 	Logger   LoggerConfig    `yaml:"logger"`
+
+	// Resolved at load time, not from YAML.
+	Source              string `yaml:"-"` // file path or "<built-in default>"
+	PassphraseFile      string `yaml:"-"` // where the passphrase was read from / written to, if a file
+	PassphraseGenerated bool   `yaml:"-"` // true on the run that created PassphraseFile
 }
 
-// LoadConfig loads configuration from a YAML file and environment variables.
+// LoadConfig loads configuration from a YAML file. See Load for the
+// no-file (compiled-in default) path.
 func LoadConfig(path string) (*Config, error) {
-	// Load .env file if it exists.
-	_ = godotenv.Load()
-
-	// Load YAML config.
-	data, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	// Apply environment variable overrides.
-	if err := applyEnvOverrides(&cfg); err != nil {
-		return nil, err
-	}
-
-	// Apply default values.
-	applyDefaults(&cfg)
-
-	// Validate configuration.
-	if err := validateConfig(&cfg); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
-	}
-
-	return &cfg, nil
+	return Load(path)
 }
 
 // applyDefaults sets default values for optional configuration.

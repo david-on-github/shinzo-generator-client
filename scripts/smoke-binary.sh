@@ -47,7 +47,7 @@ cd "$WORKDIR"
 
 start_generator() {
   GETH_RPC_URL="$RPC" GETH_WS_URL="ws://127.0.0.1:$ANVIL_PORT" GETH_API_KEY= GETH_API_KEY_TYPE= \
-  SCHEMA_AUTH_MODE=none SHINZO_KEY_PASSPHRASE=smoke-test-secret LOG_LEVEL=info \
+  SCHEMA_AUTH_MODE=none SHINZO_KEY_PASSPHRASE=smoke-test-secret SHINZO_DATA_DIR="$WORKDIR/data" LOG_LEVEL=info \
   "$REPO_ROOT/$BINARY" >>"$LOG" 2>&1 &
   GEN_PID=$!
 }
